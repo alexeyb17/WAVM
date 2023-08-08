@@ -11,7 +11,11 @@ inline llvm::Value* getTriviallyNonConstantZero(llvm::IRBuilder<>& irBuilder, ll
 {
 	llvm::Value* zeroAlloca = irBuilder.CreateAlloca(type, nullptr, "nonConstantZero");
 	irBuilder.CreateStore(llvm::Constant::getNullValue(type), zeroAlloca);
+#if LLVM_VERSION_MAJOR >= 13
+	return irBuilder.CreateLoad(type, zeroAlloca);
+#else
 	return irBuilder.CreateLoad(zeroAlloca);
+#endif
 }
 
 inline llvm::Value* createFCmpWithWorkaround(llvm::IRBuilder<>& irBuilder,

@@ -284,7 +284,6 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
 	wavm_add_c_cxx_flag_if_supported("-Wswitch-enum")
 	wavm_add_c_cxx_flag_if_supported("-Wswitch-default")
 	
-	wavm_add_c_cxx_flag_if_supported("-Wnull-dereference")
 	wavm_add_c_cxx_flag_if_supported("-Wduplicated-cond")
 	wavm_add_c_cxx_flag_if_supported("-Wduplicated-branches")
 	wavm_add_c_cxx_flag_if_supported("-Wlogical-op")

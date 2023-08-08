@@ -27,20 +27,20 @@ using namespace WAVM::LLVMJIT;
 void EmitFunctionContext::local_get(GetOrSetVariableImm<false> imm)
 {
 	WAVM_ASSERT(imm.variableIndex < localPointers.size());
-	push(irBuilder.CreateLoad(localPointers[imm.variableIndex]));
+	push(createLoad(localTypes[imm.variableIndex], localPointers[imm.variableIndex]));
 }
 void EmitFunctionContext::local_set(GetOrSetVariableImm<false> imm)
 {
 	WAVM_ASSERT(imm.variableIndex < localPointers.size());
 	auto value = irBuilder.CreateBitCast(
-		pop(), localPointers[imm.variableIndex]->getType()->getPointerElementType());
+        pop(), localTypes[imm.variableIndex]);
 	irBuilder.CreateStore(value, localPointers[imm.variableIndex]);
 }
 void EmitFunctionContext::local_tee(GetOrSetVariableImm<false> imm)
 {
 	WAVM_ASSERT(imm.variableIndex < localPointers.size());
 	auto value = irBuilder.CreateBitCast(
-		getValueFromTop(), localPointers[imm.variableIndex]->getType()->getPointerElementType());
+        getValueFromTop(), localTypes[imm.variableIndex]);
 	irBuilder.CreateStore(value, localPointers[imm.variableIndex]);
 }
 
@@ -71,8 +71,9 @@ void EmitFunctionContext::global_get(GetOrSetVariableImm<true> imm)
 		// ContextRuntimeData::globalData that its value is stored at.
 		llvm::Value* globalDataOffset = irBuilder.CreatePtrToInt(
 			moduleContext.globals[imm.variableIndex], moduleContext.iptrType);
-		llvm::Value* globalPointer = irBuilder.CreateInBoundsGEP(
-			irBuilder.CreateLoad(contextPointerVariable), {globalDataOffset});
+		llvm::Value* globalPointer = createInBoundsGEP(
+			llvmContext.i8Type,
+			createLoad(llvmContext.i8PtrType, contextPointerVariable), {globalDataOffset});
 		value = loadFromUntypedPointer(globalPointer,
 									   asLLVMType(llvmContext, globalType.valueType),
 									   getTypeByteWidth(globalType.valueType));
@@ -147,7 +148,8 @@ void EmitFunctionContext::global_set(GetOrSetVariableImm<true> imm)
 	// ContextRuntimeData::globalData that its value is stored at.
 	llvm::Value* globalDataOffset = irBuilder.CreatePtrToInt(
 		moduleContext.globals[imm.variableIndex], moduleContext.iptrType);
-	llvm::Value* globalPointer = irBuilder.CreateInBoundsGEP(
-		irBuilder.CreateLoad(contextPointerVariable), {globalDataOffset});
+	llvm::Value* globalPointer = createInBoundsGEP(
+		llvmContext.i8Type,
+		createLoad(llvmContext.i8PtrType, contextPointerVariable), {globalDataOffset});
 	storeToUntypedPointer(value, globalPointer);
 }

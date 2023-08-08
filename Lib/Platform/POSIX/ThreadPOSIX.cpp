@@ -164,6 +164,8 @@ static void getThreadStack(pthread_t thread, U8*& outMinGuardAddr, U8*& outMinAd
 #endif
 }
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wuninitialized"
 WAVM_NO_ASAN static void touchStackPages(U8* minAddr, Uptr numBytesPerPage)
 {
 	U8 sum = 0;
@@ -175,6 +177,7 @@ WAVM_NO_ASAN static void touchStackPages(U8* minAddr, Uptr numBytesPerPage)
 	}
 	WAVM_SUPPRESS_UNUSED(sum);
 }
+#pragma GCC diagnostic pop
 
 bool Platform::initThreadAndGlobalSignalsOnce()
 {

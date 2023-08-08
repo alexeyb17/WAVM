@@ -274,22 +274,44 @@ namespace WAVM { namespace LLVMJIT {
 
 	inline llvm::Constant* getMemoryIdFromOffset(llvm::Constant* memoryOffset)
 	{
+#if LLVM_VERSION_MAJOR >= 15
+		return llvm::ConstantExpr::get(
+			llvm::Instruction::UDiv,
+			llvm::ConstantExpr::getSub(
+				memoryOffset,
+				emitLiteralIptr(offsetof(Runtime::CompartmentRuntimeData, memories),
+								memoryOffset->getType())),
+			emitLiteralIptr(sizeof(Runtime::MemoryRuntimeData), memoryOffset->getType()),
+			llvm::PossiblyExactOperator::IsExact);
+#else
 		return llvm::ConstantExpr::getExactUDiv(
 			llvm::ConstantExpr::getSub(
 				memoryOffset,
 				emitLiteralIptr(offsetof(Runtime::CompartmentRuntimeData, memories),
 								memoryOffset->getType())),
 			emitLiteralIptr(sizeof(Runtime::MemoryRuntimeData), memoryOffset->getType()));
+#endif
 	}
 
 	inline llvm::Constant* getTableIdFromOffset(llvm::Constant* tableOffset)
 	{
+#if LLVM_VERSION_MAJOR >= 15
+		return llvm::ConstantExpr::get(
+			llvm::Instruction::UDiv,
+			llvm::ConstantExpr::getSub(
+				tableOffset,
+				emitLiteralIptr(offsetof(Runtime::CompartmentRuntimeData, tables),
+								tableOffset->getType())),
+			emitLiteralIptr(sizeof(Runtime::TableRuntimeData), tableOffset->getType()),
+			llvm::PossiblyExactOperator::IsExact);
+#else
 		return llvm::ConstantExpr::getExactUDiv(
 			llvm::ConstantExpr::getSub(
 				tableOffset,
 				emitLiteralIptr(offsetof(Runtime::CompartmentRuntimeData, tables),
 								tableOffset->getType())),
 			emitLiteralIptr(sizeof(Runtime::TableRuntimeData), tableOffset->getType()));
+#endif
 	}
 
 	inline llvm::Type* getIptrType(LLVMContext& llvmContext, U32 numPointerBytes)
@@ -326,6 +348,19 @@ namespace WAVM { namespace LLVMJIT {
 
 			// LLVM 9+ has a more general purpose frame-pointer=(all|non-leaf|none) attribute that
 			// WAVM should use once we can depend on it.
+#if LLVM_VERSION_MAJOR >= 14
+			attrs = attrs.addAttributeAtIndex(function->getContext(),
+											  llvm::AttributeList::FunctionIndex,
+											  "no-frame-pointer-elim",
+											  "true");
+
+			// Set the probe-stack attribute: this will cause functions that allocate more than a
+			// page of stack space to call the wavm_probe_stack function defined in POSIX.S
+			attrs = attrs.addAttributeAtIndex(function->getContext(),
+											  llvm::AttributeList::FunctionIndex,
+											  "probe-stack",
+											  "wavm_probe_stack");
+#else
 			attrs = attrs.addAttribute(function->getContext(),
 									   llvm::AttributeList::FunctionIndex,
 									   "no-frame-pointer-elim",
@@ -337,6 +372,7 @@ namespace WAVM { namespace LLVMJIT {
 									   llvm::AttributeList::FunctionIndex,
 									   "probe-stack",
 									   "wavm_probe_stack");
+#endif
 
 			function->setAttributes(attrs);
 		}

@@ -23,6 +23,7 @@ namespace WAVM { namespace LLVMJIT {
 		llvm::Function* function;
 
 		std::vector<llvm::Value*> localPointers;
+		std::vector<llvm::Type*> localTypes;
 
 		llvm::DISubprogram* diFunction;
 
