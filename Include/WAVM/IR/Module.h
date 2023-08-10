@@ -113,17 +113,17 @@ namespace WAVM { namespace IR {
 		MemoryType type;
 	};
 
+	// A tag definition
+	struct TagDef
+	{
+		IndexedTagType type;
+	};
+
 	// A global definition
 	struct GlobalDef
 	{
 		GlobalType type;
 		InitializerExpression initializer;
-	};
-
-	// A tagged tuple type definition
-	struct ExceptionTypeDef
-	{
-		ExceptionType type;
 	};
 
 	// Describes an object imported into a module or a specific type
@@ -133,12 +133,6 @@ namespace WAVM { namespace IR {
 		std::string moduleName;
 		std::string exportName;
 	};
-
-	typedef Import<IndexedFunctionType> FunctionImport;
-	typedef Import<TableType> TableImport;
-	typedef Import<MemoryType> MemoryImport;
-	typedef Import<GlobalType> GlobalImport;
-	typedef Import<ExceptionType> ExceptionTypeImport;
 
 	// Describes an export from a module.
 	struct Export
@@ -277,8 +271,8 @@ namespace WAVM { namespace IR {
 		function,
 		table,
 		memory,
+		tag,
 		global,
-		exceptionType,
 		export_,
 		start,
 		elem,
@@ -347,8 +341,8 @@ namespace WAVM { namespace IR {
 		IndexSpace<FunctionDef, IndexedFunctionType> functions;
 		IndexSpace<TableDef, TableType> tables;
 		IndexSpace<MemoryDef, MemoryType> memories;
+		IndexSpace<TagDef, IndexedTagType> tags;
 		IndexSpace<GlobalDef, GlobalType> globals;
-		IndexSpace<ExceptionTypeDef, ExceptionType> exceptionTypes;
 
 		std::vector<KindAndIndex> imports;
 		std::vector<Export> exports;
@@ -379,9 +373,12 @@ namespace WAVM { namespace IR {
 	inline bool hasImportSection(const Module& module)
 	{
 		WAVM_ASSERT((module.imports.size() > 0)
-					== (module.functions.imports.size() > 0 || module.tables.imports.size() > 0
-						|| module.memories.imports.size() > 0 || module.globals.imports.size() > 0
-						|| module.exceptionTypes.imports.size() > 0));
+					== (module.functions.imports.size() > 0
+						|| module.tables.imports.size() > 0
+						|| module.memories.imports.size() > 0
+						|| module.tags.imports.size() > 0
+						|| module.globals.imports.size() > 0
+						));
 		return module.imports.size() > 0;
 	}
 	inline bool hasFunctionSection(const Module& module)
@@ -391,10 +388,7 @@ namespace WAVM { namespace IR {
 	inline bool hasTableSection(const Module& module) { return module.tables.defs.size() > 0; }
 	inline bool hasMemorySection(const Module& module) { return module.memories.defs.size() > 0; }
 	inline bool hasGlobalSection(const Module& module) { return module.globals.defs.size() > 0; }
-	inline bool hasExceptionTypeSection(const Module& module)
-	{
-		return module.exceptionTypes.defs.size() > 0;
-	}
+	inline bool hasTagSection(const Module& module)	{ return module.tags.defs.size() > 0; }
 	inline bool hasExportSection(const Module& module) { return module.exports.size() > 0; }
 	inline bool hasStartSection(const Module& module)
 	{
@@ -445,10 +439,10 @@ namespace WAVM { namespace IR {
 		std::vector<Function> functions;
 		std::vector<std::string> tables;
 		std::vector<std::string> memories;
+		std::vector<std::string> tags;
 		std::vector<std::string> globals;
 		std::vector<std::string> elemSegments;
 		std::vector<std::string> dataSegments;
-		std::vector<std::string> exceptionTypes;
 	};
 
 	// Looks for a name section in a module. If it exists, deserialize it into outNames.

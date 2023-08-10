@@ -510,7 +510,7 @@ void Runtime::initElemSegment(Instance* instance,
 			case IR::ExternKind::global:
 				elemObject = asObject(instance->globals[externIndex]);
 				break;
-			case IR::ExternKind::exceptionType:
+			case IR::ExternKind::tag:
 				elemObject = asObject(instance->exceptionTypes[externIndex]);
 				break;
 

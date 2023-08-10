@@ -122,10 +122,11 @@ Instance* Runtime::instantiateModule(Compartment* compartment,
 			globalImports.push_back(global);
 			break;
 		}
-		case ExternKind::exceptionType: {
+		case ExternKind::tag: {
 			ExceptionType* exceptionType = asExceptionType(importObject);
-			WAVM_ERROR_UNLESS(isSubtype(exceptionType->sig.params,
-										module->ir.exceptionTypes.getType(kindIndex.index).params));
+			auto typeIndex = module->ir.tags.getType(kindIndex.index).index;
+			WAVM_ERROR_UNLESS(isSubtype(exceptionType->sig,
+										module->ir.types[typeIndex].params()));
 			exceptionTypeImports.push_back(exceptionType);
 			break;
 		}
@@ -160,7 +161,7 @@ Instance* Runtime::instantiateModuleInternal(Compartment* compartment,
 	WAVM_ASSERT(tables.size() == module->ir.tables.imports.size());
 	WAVM_ASSERT(memories.size() == module->ir.memories.imports.size());
 	WAVM_ASSERT(globals.size() == module->ir.globals.imports.size());
-	WAVM_ASSERT(exceptionTypes.size() == module->ir.exceptionTypes.imports.size());
+	WAVM_ASSERT(exceptionTypes.size() == module->ir.tags.imports.size());
 
 	Uptr id = UINTPTR_MAX;
 	{
@@ -230,16 +231,15 @@ Instance* Runtime::instantiateModuleInternal(Compartment* compartment,
 
 	// Instantiate the module's exception types.
 	for(Uptr exceptionTypeDefIndex = 0;
-		exceptionTypeDefIndex < module->ir.exceptionTypes.defs.size();
+		exceptionTypeDefIndex < module->ir.tags.defs.size();
 		++exceptionTypeDefIndex)
 	{
-		const ExceptionTypeDef& exceptionTypeDef
-			= module->ir.exceptionTypes.defs[exceptionTypeDefIndex];
+		const auto& typeIndex =  module->ir.tags.defs[exceptionTypeDefIndex].type.index;
 		std::string debugName
 			= disassemblyNames
-				  .exceptionTypes[module->ir.exceptionTypes.imports.size() + exceptionTypeDefIndex];
+				  .tags[module->ir.tags.imports.size() + exceptionTypeDefIndex];
 		exceptionTypes.push_back(
-			createExceptionType(compartment, exceptionTypeDef.type, std::move(debugName)));
+			createExceptionType(compartment, module->ir.types[typeIndex].params(), std::move(debugName)));
 	}
 
 	// Set up the values to bind to the symbols in the LLVMJIT object code.
@@ -351,7 +351,7 @@ Instance* Runtime::instantiateModuleInternal(Compartment* compartment,
 		case IR::ExternKind::table: exportedObject = tables[exportIt.index]; break;
 		case IR::ExternKind::memory: exportedObject = memories[exportIt.index]; break;
 		case IR::ExternKind::global: exportedObject = globals[exportIt.index]; break;
-		case IR::ExternKind::exceptionType: exportedObject = exceptionTypes[exportIt.index]; break;
+		case IR::ExternKind::tag: exportedObject = exceptionTypes[exportIt.index]; break;
 
 		case IR::ExternKind::invalid:
 		default: WAVM_UNREACHABLE();
@@ -618,12 +618,11 @@ Global* Runtime::getTypedInstanceExport(const Instance* instance,
 
 Runtime::ExceptionType* Runtime::getTypedInstanceExport(const Instance* instance,
 														const std::string& name,
-														const IR::ExceptionType& type)
+                                                        const IR::IndexedTagType& type)
 {
 	WAVM_ASSERT(instance);
 	Object* const* exportedObjectPtr = instance->exportMap.get(name);
-	return exportedObjectPtr && (*exportedObjectPtr)->kind == ObjectKind::function
-				   && isSubtype(asExceptionType(*exportedObjectPtr)->sig.params, type.params)
+	return exportedObjectPtr && (*exportedObjectPtr)->kind == ObjectKind::tag
 			   ? asExceptionType(*exportedObjectPtr)
 			   : nullptr;
 }

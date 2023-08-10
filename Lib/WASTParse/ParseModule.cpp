@@ -103,14 +103,6 @@ static GlobalType parseGlobalType(CursorState* cursor)
 	return result;
 }
 
-static TypeTuple parseTypeTuple(CursorState* cursor)
-{
-	std::vector<ValueType> parameters;
-	ValueType elementType;
-	while(tryParseValueType(cursor, elementType)) { parameters.push_back(elementType); }
-	return TypeTuple(parameters);
-}
-
 // An unresolved initializer expression: uses a Reference instead of an index for global.get and
 // ref.func.
 typedef InitializerExpressionBase<Reference> UnresolvedInitializerExpression;
@@ -296,8 +288,10 @@ static void parseImport(CursorState* cursor)
 		case t_func:
 		case t_table:
 		case t_memory:
+		case t_tag:
 		case t_global:
-		case t_exception_type: ++cursor->nextToken; break;
+			++cursor->nextToken;
+		break;
 		default:
 			parseErrorf(cursor->parseState, cursor->nextToken, "invalid import type");
 			throw RecoverParseException();
@@ -380,17 +374,27 @@ static void parseImport(CursorState* cursor)
 						 ExternKind::global);
 			break;
 		}
-		case t_exception_type: {
-			TypeTuple params = parseTypeTuple(cursor);
-			createImport(cursor,
-						 name,
-						 std::move(moduleName),
-						 std::move(exportName),
-						 cursor->moduleState->exceptionTypeNameToIndexMap,
-						 cursor->moduleState->module.exceptionTypes,
-						 cursor->moduleState->disassemblyNames.exceptionTypes,
-						 ExceptionType{params},
-						 ExternKind::exceptionType);
+		case t_tag: {
+			NameToIndexMap localNameToIndexMap;
+			std::vector<std::string> localDissassemblyNames;
+			const auto unresolvedType = parseFunctionTypeRefAndOrDecl(
+				cursor, localNameToIndexMap, localDissassemblyNames);
+			const Uptr importIndex = createImport(cursor,
+												  name,
+												  std::move(moduleName),
+												  std::move(exportName),
+												  cursor->moduleState->tagNameToIndexMap,
+												  cursor->moduleState->module.tags,
+												  cursor->moduleState->disassemblyNames.tags,
+                                                              IndexedTagType{IndexedTagType::AttributeException, UINTPTR_MAX},
+												  ExternKind::tag);
+
+			// Resolve the function import type after all type declarations have been parsed.
+			cursor->moduleState->postTypeCallbacks.push_back(
+				[unresolvedType, importIndex](ModuleState* moduleState) {
+					moduleState->module.tags.imports[importIndex].type
+						= resolveTagType(moduleState, unresolvedType);
+				});
 			break;
 		}
 		default: WAVM_UNREACHABLE();
@@ -418,9 +422,9 @@ static bool tryParseExternKind(CursorState* cursor, ExternKind& outKind)
 		++cursor->nextToken;
 		outKind = ExternKind::global;
 		return true;
-	case t_exception_type:
+	case t_tag:
 		++cursor->nextToken;
-		outKind = ExternKind::exceptionType;
+		outKind = ExternKind::tag;
 		return true;
 	default: return false;
 	};
@@ -1096,24 +1100,48 @@ static void parseGlobal(CursorState* cursor)
 		});
 }
 
-static void parseExceptionType(CursorState* cursor)
+static void parseTag(CursorState* cursor)
 {
 	parseObjectDefOrImport(
 		cursor,
 		cursor->moduleState->exceptionTypeNameToIndexMap,
-		cursor->moduleState->module.exceptionTypes,
-		cursor->moduleState->disassemblyNames.exceptionTypes,
-		t_exception_type,
-		ExternKind::exceptionType,
-		// Parse an exception type import.
+		cursor->moduleState->module.tags,
+		cursor->moduleState->disassemblyNames.tags,
+		t_tag,
+		ExternKind::tag,
+		// Parse an tag import.
 		[](CursorState* cursor) {
-			TypeTuple params = parseTypeTuple(cursor);
-			return ExceptionType{params};
+			// Parse the imported tag's type.
+			NameToIndexMap localNameToIndexMap;
+			std::vector<std::string> localDisassemblyNames;
+			const auto unresolvedType
+				= parseFunctionTypeRefAndOrDecl(cursor, localNameToIndexMap, localDisassemblyNames);
+
+			// Resolve the tag type after all type declarations have been parsed.
+			const Uptr importIndex = cursor->moduleState->module.tags.imports.size();
+			cursor->moduleState->postTypeCallbacks.push_back(
+				[unresolvedType, importIndex](ModuleState* moduleState) {
+					moduleState->module.tags.imports[importIndex].type
+						= resolveTagType(moduleState, unresolvedType);
+				});
+                        return IndexedTagType{IndexedTagType::AttributeException, UINTPTR_MAX};
 		},
-		// Parse an exception type definition
+		// Parse tag definition
 		[](CursorState* cursor, const Token*) {
-			TypeTuple params = parseTypeTuple(cursor);
-			return ExceptionTypeDef{ExceptionType{params}};
+			// Parse tag's type.
+			NameToIndexMap localNameToIndexMap;
+			std::vector<std::string> localDisassemblyNames;
+			const auto unresolvedType
+				= parseFunctionTypeRefAndOrDecl(cursor, localNameToIndexMap, localDisassemblyNames);
+
+			// Resolve the tag type after all type declarations have been parsed.
+			const Uptr defIndex = cursor->moduleState->module.tags.defs.size();
+			cursor->moduleState->postTypeCallbacks.push_back(
+				[unresolvedType, defIndex](ModuleState* moduleState) {
+					moduleState->module.tags.defs[defIndex].type
+						= resolveTagType(moduleState, unresolvedType);
+				});
+                        return TagDef{ IndexedTagType{IndexedTagType::AttributeException, UINTPTR_MAX} };
 		});
 }
 
@@ -1155,17 +1183,17 @@ static OrderedSectionID parseOrderedSectionID(CursorState* cursor)
 	case t_func: result = OrderedSectionID::function; break;
 	case t_table: result = OrderedSectionID::table; break;
 	case t_memory: result = OrderedSectionID::memory; break;
-	case t_global: result = OrderedSectionID::global; break;
-	case t_exception_type:
+	case t_tag:
 		if(!cursor->moduleState->module.featureSpec.exceptionHandling)
 		{
 			parseErrorf(
 				cursor->parseState,
 				cursor->nextToken,
-				"custom section after 'exception_type' section requires the 'exception-handling' feature.");
+				"'tag' section requires the 'exception-handling' feature.");
 		}
-		result = OrderedSectionID::exceptionType;
+		result = OrderedSectionID::tag;
 		break;
+	case t_global: result = OrderedSectionID::global; break;
 	case t_export: result = OrderedSectionID::export_; break;
 	case t_start: result = OrderedSectionID::start; break;
 	case t_elem: result = OrderedSectionID::elem; break;
@@ -1175,7 +1203,7 @@ static OrderedSectionID parseOrderedSectionID(CursorState* cursor)
 			parseErrorf(
 				cursor->parseState,
 				cursor->nextToken,
-				"custom section after exception_type section requires the 'bulk-memory-operations' feature.");
+				"'data count' section requires the 'bulk-memory-operations' feature.");
 		}
 		result = OrderedSectionID::dataCount;
 		break;
@@ -1266,10 +1294,8 @@ static void parseCustomSection(CursorState* cursor)
 				break;
 			case OrderedSectionID::table: hasPrecedingSection = hasTableSection(module); break;
 			case OrderedSectionID::memory: hasPrecedingSection = hasMemorySection(module); break;
+			case OrderedSectionID::tag: hasPrecedingSection = hasTagSection(module); break;
 			case OrderedSectionID::global: hasPrecedingSection = hasGlobalSection(module); break;
-			case OrderedSectionID::exceptionType:
-				hasPrecedingSection = hasExceptionTypeSection(module);
-				break;
 			case OrderedSectionID::export_: hasPrecedingSection = hasExportSection(module); break;
 			case OrderedSectionID::start: hasPrecedingSection = hasStartSection(module); break;
 			case OrderedSectionID::elem: hasPrecedingSection = hasElemSection(module); break;
@@ -1298,8 +1324,8 @@ static void parseDeclaration(CursorState* cursor)
 		{
 		case t_import: parseImport(cursor); return true;
 		case t_export: parseExport(cursor); return true;
-		case t_exception_type: parseExceptionType(cursor); return true;
 		case t_global: parseGlobal(cursor); return true;
+		case t_tag: parseTag(cursor); return true;
 		case t_memory: parseMemory(cursor); return true;
 		case t_table: parseTable(cursor); return true;
 		case t_type: parseType(cursor); return true;
@@ -1414,7 +1440,7 @@ void WAST::parseModuleBody(CursorState* cursor, IR::Module& outModule)
 		WAVM_ASSERT(outModule.globals.size() == disassemblyNames.globals.size());
 		WAVM_ASSERT(outModule.elemSegments.size() == disassemblyNames.elemSegments.size());
 		WAVM_ASSERT(outModule.dataSegments.size() == disassemblyNames.dataSegments.size());
-		WAVM_ASSERT(outModule.exceptionTypes.size() == disassemblyNames.exceptionTypes.size());
+		WAVM_ASSERT(outModule.tags.size() == disassemblyNames.tags.size());
 		IR::setDisassemblyNames(outModule, disassemblyNames);
 	}
 	catch(RecoverParseException const&)

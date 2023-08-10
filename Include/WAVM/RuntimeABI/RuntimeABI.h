@@ -34,8 +34,8 @@ namespace WAVM { namespace Runtime {
 		function = (U8)IR::ExternKind::function,
 		table = (U8)IR::ExternKind::table,
 		memory = (U8)IR::ExternKind::memory,
+		tag = (U8)IR::ExternKind::tag,
 		global = (U8)IR::ExternKind::global,
-		exceptionType = (U8)IR::ExternKind::exceptionType,
 
 		// Runtime-specific object kinds that are only used by transient runtime objects.
 		instance,
@@ -51,8 +51,8 @@ namespace WAVM { namespace Runtime {
 				  "IR::ExternKind::memory != ObjectKind::memory");
 	static_assert(Uptr(IR::ExternKind::global) == Uptr(ObjectKind::global),
 				  "IR::ExternKind::global != ObjectKind::global");
-	static_assert(Uptr(IR::ExternKind::exceptionType) == Uptr(ObjectKind::exceptionType),
-				  "IR::ExternKind::exceptionType != ObjectKind::exceptionType");
+	static_assert(Uptr(IR::ExternKind::tag) == Uptr(ObjectKind::tag),
+				  "IR::ExternKind::tag != ObjectKind::tag");
 
 	static constexpr Uptr contextNumBytes = 16384;
 	static constexpr Uptr maxThunkArgAndReturnBytes = 256;

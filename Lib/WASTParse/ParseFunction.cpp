@@ -196,6 +196,37 @@ static bool tryParseAndResolveBranchTargetRef(CursorState* cursor, Uptr& outTarg
 	return false;
 }
 
+static bool tryParseAndResolveDelegateTargetRef(CursorState* cursor, Uptr& outTargetDepth)
+{
+	Reference branchTargetRef;
+	if(tryParseNameOrIndexRef(cursor, branchTargetRef))
+	{
+		switch(branchTargetRef.type)
+		{
+		case Reference::Type::index: outTargetDepth = branchTargetRef.index; break;
+		case Reference::Type::name: {
+			const HashMapPair<Name, Uptr>* nameIndexPair
+				= cursor->functionState->branchTargetNameToIndexMap.getPair(branchTargetRef.name);
+			if(!nameIndexPair)
+			{
+				parseErrorf(cursor->parseState, branchTargetRef.token, "unknown name");
+				outTargetDepth = UINTPTR_MAX;
+			}
+			else
+			{
+				outTargetDepth = cursor->functionState->branchTargetDepth - nameIndexPair->value - 1;
+			}
+			break;
+		}
+
+		case Reference::Type::invalid:
+		default: WAVM_UNREACHABLE();
+		};
+		return true;
+	}
+	return false;
+}
+
 static void parseAndValidateRedundantBranchTargetName(CursorState* cursor,
 													  Name branchTargetName,
 													  const char* context,
@@ -577,12 +608,21 @@ static void parseImm(CursorState* cursor, ExceptionTypeImm& outImm)
 	outImm.exceptionTypeIndex
 		= parseAndResolveNameOrIndexRef(cursor,
 										cursor->moduleState->exceptionTypeNameToIndexMap,
-										cursor->moduleState->module.exceptionTypes.size(),
-										"exception type");
+										cursor->moduleState->module.tags.size(),
+										"exception tag");
 }
 static void parseImm(CursorState* cursor, RethrowImm& outImm)
 {
 	if(!tryParseAndResolveBranchTargetRef(cursor, outImm.catchDepth))
+	{
+		parseErrorf(cursor->parseState, cursor->nextToken, "expected try label or index");
+		throw RecoverParseException();
+	}
+}
+
+static void parseImm(CursorState* cursor, DelegateImm& outImm)
+{
+	if(!tryParseAndResolveDelegateTargetRef(cursor, outImm.delegateDepth))
 	{
 		parseErrorf(cursor->parseState, cursor->nextToken, "expected try label or index");
 		throw RecoverParseException();
@@ -730,7 +770,7 @@ static void parseControlImm(CursorState* cursor,
 	else
 	{
 		imm.type.format = IndexedBlockType::functionType;
-		imm.type.index = getUniqueFunctionTypeIndex(cursor->moduleState, functionType).index;
+		imm.type.index = getUniqueFunctionTypeIndex(cursor->moduleState, functionType);
 	}
 }
 
@@ -863,35 +903,119 @@ static WAVM_FORCENOINLINE void parseTryInstr(CursorState* cursor, Uptr depth)
 	// Parse the try clause.
 	parseInstrSequence(cursor, depth);
 
-	// Parse catch clauses.
-	while(cursor->nextToken->type != t_end)
+	if (cursor->nextToken->type == t_delegate)
 	{
-		if(cursor->nextToken->type == t_catch_)
+		++cursor->nextToken;
+		DelegateImm delegateImm;
+		parseImm(cursor, delegateImm);
+		cursor->functionState->validatingCodeStream.delegate(delegateImm);
+	}
+	else
+	{
+		// Parse catch clauses.
+		while(cursor->nextToken->type != t_end)
 		{
-			++cursor->nextToken;
-			ExceptionTypeImm exceptionTypeImm;
-			parseImm(cursor, exceptionTypeImm);
-			cursor->functionState->validatingCodeStream.catch_(exceptionTypeImm);
-			parseInstrSequence(cursor, depth);
-		}
-		else if(cursor->nextToken->type == t_catch_all)
-		{
-			++cursor->nextToken;
-			cursor->functionState->validatingCodeStream.catch_all();
-			parseInstrSequence(cursor, depth);
-		}
-		else
-		{
-			parseErrorf(cursor->parseState,
-						cursor->nextToken,
-						"expected 'catch', 'catch_all', or 'end' following 'try'");
-			throw RecoverParseException();
-		}
-	};
+			if(cursor->nextToken->type == t_catch_)
+			{
+				++cursor->nextToken;
+				ExceptionTypeImm exceptionTypeImm;
+				parseImm(cursor, exceptionTypeImm);
+				cursor->functionState->validatingCodeStream.catch_(exceptionTypeImm);
+				parseInstrSequence(cursor, depth);
+			}
+			else if(cursor->nextToken->type == t_catch_all)
+			{
+				++cursor->nextToken;
+				cursor->functionState->validatingCodeStream.catch_all();
+				parseInstrSequence(cursor, depth);
+			}
+			else
+			{
+				parseErrorf(cursor->parseState,
+							cursor->nextToken,
+							"expected 'catch', 'catch_all', 'delegate', or 'end' following 'try'");
+				throw RecoverParseException();
+			}
+		} // while !t_end
 
-	require(cursor, t_end);
-	parseAndValidateRedundantBranchTargetName(cursor, branchTargetName, "try", "end");
-	cursor->functionState->validatingCodeStream.end();
+		require(cursor, t_end);
+		parseAndValidateRedundantBranchTargetName(cursor, branchTargetName, "try", "end");
+		cursor->functionState->validatingCodeStream.end();
+	}
+}
+
+static WAVM_FORCENOINLINE void parseTryExpr(CursorState* cursor, Uptr depth)
+{
+	Name branchTargetName;
+	ControlStructureImm imm;
+	parseControlImm(cursor, branchTargetName, imm);
+
+	ScopedBranchTarget branchTarget(cursor->functionState, branchTargetName);
+	cursor->functionState->validatingCodeStream.try_(imm);
+
+	if(cursor->nextToken[0].type != t_leftParenthesis || cursor->nextToken[1].type != t_do)
+	{
+		parseErrorf(cursor->parseState,
+					cursor->nextToken,
+					"expected 'do' expression following 'try' expression");
+		throw RecoverParseException();
+	}
+	parseParenthesized(cursor, [&]
+	{
+		// skip 'do'
+		++cursor->nextToken;
+		// Parse the try instructions.
+		parseInstrSequence(cursor, depth);
+	});
+
+	if (cursor->nextToken[0].type == t_leftParenthesis && cursor->nextToken[1].type == t_delegate)
+	{
+		parseParenthesized(cursor, [&]
+		{
+			// skip 'delegate'
+			++cursor->nextToken;
+			DelegateImm delegateImm;
+			parseImm(cursor, delegateImm);
+			cursor->functionState->validatingCodeStream.delegate(delegateImm);
+			parseInstrSequence(cursor, depth);
+		});
+	}
+	else
+	{
+		while (cursor->nextToken[0].type != t_rightParenthesis)
+		{
+			if (cursor->nextToken[0].type == t_leftParenthesis && cursor->nextToken[1].type == t_catch_)
+			{
+				parseParenthesized(cursor, [&]
+				{
+					// skip 'catch'
+					++cursor->nextToken;
+					ExceptionTypeImm exceptionTypeImm;
+					parseImm(cursor, exceptionTypeImm);
+					cursor->functionState->validatingCodeStream.catch_(exceptionTypeImm);
+					parseInstrSequence(cursor, depth);
+				});
+			}
+			else if (cursor->nextToken[0].type == t_leftParenthesis && cursor->nextToken[1].type == t_catch_all)
+			{
+				parseParenthesized(cursor, [&]
+				{
+					// skip 'catch_all'
+					++cursor->nextToken;
+					cursor->functionState->validatingCodeStream.catch_all();
+					parseInstrSequence(cursor, depth);
+				});
+			}
+			else
+			{
+				parseErrorf(cursor->parseState,
+							cursor->nextToken,
+							"expected 'catch', 'catch_all' or 'delegate' expression following 'do' expression");
+				throw RecoverParseException();
+			}
+		}
+		cursor->functionState->validatingCodeStream.end();
+	}
 }
 
 static WAVM_FORCENOINLINE void parseExprSequence(CursorState* cursor, Uptr depth)
@@ -940,6 +1064,11 @@ static void parseExpr(CursorState* cursor, Uptr depth)
 				parseIfExpr(cursor, depth);
 				break;
 			}
+			case t_try_: {
+				++cursor->nextToken;
+				parseTryExpr(cursor, depth);
+				break;
+			}
 #define VISIT_OP(opcode, name, nameString, Imm, ...)                                               \
 	case t_##name:                                                                                 \
 		parseOp_##name(cursor, true, depth);                                                       \
@@ -979,6 +1108,7 @@ static void parseInstrSequence(CursorState* cursor, Uptr depth)
 			case t_end: return;
 			case t_catch_: return;
 			case t_catch_all: return;
+			case t_delegate: return;
 			case t_block: {
 				checkRecursionDepth(cursor, depth + 1);
 				++cursor->nextToken;

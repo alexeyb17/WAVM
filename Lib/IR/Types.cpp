@@ -25,13 +25,13 @@ struct TypeTupleHashPolicy
 	static Uptr getKeyHash(TypeTuple typeTuple) { return typeTuple.getHash(); }
 };
 
-struct FunctionTypeHashPolicy
+struct TypeTypeHashPolicy_new
 {
-	static bool areKeysEqual(FunctionType left, FunctionType right)
+	static bool areKeysEqual(TypeType left, TypeType right)
 	{
 		return left.params() == right.params() && left.results() == right.results();
 	}
-	static Uptr getKeyHash(FunctionType functionType) { return functionType.getHash(); }
+	static Uptr getKeyHash(TypeType type) { return type.getHash(); }
 };
 
 IR::TypeTuple::Impl::Impl(Uptr inNumElems, const ValueType* inElems) : numElems(inNumElems)
@@ -111,29 +111,29 @@ const TypeTuple::Impl* IR::TypeTuple::getUniqueImpl(Uptr numElems, const ValueTy
 	}
 }
 
-struct GlobalUniqueFunctionTypes
+struct GlobalUniqueTypes
 {
 	Platform::Mutex mutex;
-	HashSet<FunctionType, FunctionTypeHashPolicy> set;
+	HashSet<TypeType, TypeTypeHashPolicy_new> set;
 	std::vector<void*> impls;
 
-	~GlobalUniqueFunctionTypes()
+	~GlobalUniqueTypes()
 	{
 		Platform::Mutex::Lock lock(mutex);
 		for(void* impl : impls) { free(impl); }
 	}
 
-	static GlobalUniqueFunctionTypes& get()
+	static GlobalUniqueTypes& get()
 	{
-		static GlobalUniqueFunctionTypes singleton;
+		static GlobalUniqueTypes singleton;
 		return singleton;
 	}
 
 private:
-	GlobalUniqueFunctionTypes() = default;
+	GlobalUniqueTypes() = default;
 };
 
-IR::FunctionType::Impl::Impl(TypeTuple inResults,
+IR::TypeType::Impl::Impl(TypeTuple inResults,
 							 TypeTuple inParams,
 							 CallingConvention inCallingConvention)
 : results(inResults), params(inParams), callingConvention(inCallingConvention)
@@ -142,7 +142,7 @@ IR::FunctionType::Impl::Impl(TypeTuple inResults,
 	hash = Hash<Uptr>()(hash, Uptr(callingConvention));
 }
 
-const FunctionType::Impl* IR::FunctionType::getUniqueImpl(TypeTuple results,
+const TypeType::Impl* IR::TypeType::getUniqueImpl(TypeTuple results,
 														  TypeTuple params,
 														  CallingConvention callingConvention)
 {
@@ -161,17 +161,19 @@ const FunctionType::Impl* IR::FunctionType::getUniqueImpl(TypeTuple results,
 	{
 		Impl localImpl(results, params, callingConvention);
 
-		GlobalUniqueFunctionTypes& globalUniqueFunctionTypes = GlobalUniqueFunctionTypes::get();
-		Platform::Mutex::Lock lock(globalUniqueFunctionTypes.mutex);
+		GlobalUniqueTypes& globalUniqueTypes = GlobalUniqueTypes::get();
+		Platform::Mutex::Lock lock(globalUniqueTypes.mutex);
 
-		const FunctionType* functionType
-			= globalUniqueFunctionTypes.set.get(FunctionType(&localImpl));
-		if(functionType) { return functionType->impl; }
+		const TypeType* t = globalUniqueTypes.set.get(TypeType(&localImpl));
+		if (t)
+		{
+			return t->impl;
+		}
 		else
 		{
 			Impl* globalImpl = new(malloc(sizeof(Impl))) Impl(localImpl);
-			globalUniqueFunctionTypes.set.addOrFail(FunctionType(globalImpl));
-			globalUniqueFunctionTypes.impls.push_back(globalImpl);
+			globalUniqueTypes.set.addOrFail(TypeType(globalImpl));
+			globalUniqueTypes.impls.push_back(globalImpl);
 			return globalImpl;
 		}
 	}

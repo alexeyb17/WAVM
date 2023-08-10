@@ -833,7 +833,7 @@ void WAST::parseTestCommands(const char* string,
 		// Support test scripts that are just an inline module.
 		if(cursor.nextToken[0].type == t_leftParenthesis
 		   && (cursor.nextToken[1].type == t_import || cursor.nextToken[1].type == t_export
-			   || cursor.nextToken[1].type == t_exception_type
+			   || cursor.nextToken[1].type == t_tag
 			   || cursor.nextToken[1].type == t_global || cursor.nextToken[1].type == t_memory
 			   || cursor.nextToken[1].type == t_table || cursor.nextToken[1].type == t_type
 			   || cursor.nextToken[1].type == t_data || cursor.nextToken[1].type == t_elem

@@ -166,7 +166,7 @@ struct GCState
 		}
 
 		case ObjectKind::memory:
-		case ObjectKind::exceptionType:
+		case ObjectKind::tag:
 		case ObjectKind::context: break;
 
 		case ObjectKind::function:

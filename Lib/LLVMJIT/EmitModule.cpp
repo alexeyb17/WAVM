@@ -176,8 +176,8 @@ void LLVMJIT::emitModule(const IR::Module& irModule,
 	}
 
 	// Create LLVM external globals corresponding to pointers to ExceptionTypes for the
-	// module's declared exception types.
-	for(Uptr exceptionTypeIndex = 0; exceptionTypeIndex < irModule.exceptionTypes.size();
+	// module's declared exception tags.
+	for(Uptr exceptionTypeIndex = 0; exceptionTypeIndex < irModule.tags.size();
 		++exceptionTypeIndex)
 	{
 		llvm::Constant* biasedExceptionTypeIdAsPointer = createImportedConstant(

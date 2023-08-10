@@ -156,8 +156,8 @@ static void validateExternKind(const Module& module, ExternKind externKind)
 	case ExternKind::memory:
 	case ExternKind::global: break;
 
-	case ExternKind::exceptionType:
-		VALIDATE_FEATURE("exception type extern", exceptionHandling);
+	case ExternKind::tag:
+		VALIDATE_FEATURE("tag extern", exceptionHandling);
 		break;
 
 	case ExternKind::invalid:
@@ -245,6 +245,15 @@ static FunctionType validateFunctionType(const Module& module, const IndexedFunc
 	const FunctionType functionType = module.types[type.index];
 	if(functionType.results().size() > IR::maxReturnValues)
 	{ throw ValidationException("function has more return values than WAVM can support"); }
+	return functionType;
+}
+
+static FunctionType validateTagType(const Module& module, const IndexedTagType& type)
+{
+	VALIDATE_INDEX(type.index, module.types.size());
+	const FunctionType functionType = module.types[type.index];
+	if(functionType.results().size() > 0)
+	{ throw ValidationException("tag cannot have return values"); }
 	return functionType;
 }
 
@@ -465,15 +474,41 @@ struct FunctionValidationContext
 	void catch_(ExceptionTypeImm imm)
 	{
 		VALIDATE_FEATURE("catch", exceptionHandling);
-		VALIDATE_INDEX(imm.exceptionTypeIndex, module.exceptionTypes.size());
-		const ExceptionType& type = module.exceptionTypes.getType(imm.exceptionTypeIndex);
+		VALIDATE_INDEX(imm.exceptionTypeIndex, module.tags.size());
+                const IndexedTagType& tagType = module.tags.getType(imm.exceptionTypeIndex);
 		validateCatch();
-		for(auto param : type.params) { pushOperand(param); }
+		VALIDATE_INDEX(tagType.index, module.types.size());
+		const auto& type = module.types[tagType.index];
+		for(auto param : type.params()) { pushOperand(param); }
 	}
 	void catch_all(NoImm)
 	{
 		VALIDATE_FEATURE("catch_all", exceptionHandling);
 		validateCatch();
+	}
+
+	void delegate(DelegateImm imm)
+	{
+		VALIDATE_FEATURE("delegate", exceptionHandling);
+		WAVM_ASSERT(controlStack.size());
+
+		TypeTuple results = controlStack.back().results;
+		popAndValidateTypeTuple("try result", controlStack.back().results);
+		validateStackEmptyAtEndOfControlStructure();
+
+		if(controlStack.back().type != ControlContext::Type::try_)
+		{
+			throw ValidationException("delegate only allowed in try context");
+		}
+
+		auto targetBlockType = getBranchTargetByDepth(imm.delegateDepth + 1).type;
+		VALIDATE_UNLESS(
+					"delegate must target a try or a function: ",
+					targetBlockType != ControlContext::Type::try_ &&
+					targetBlockType != ControlContext::Type::function);
+
+		controlStack.pop_back();
+		if(controlStack.size()) { pushOperandTuple(results); }
 	}
 
 	void return_(NoImm)
@@ -623,9 +658,11 @@ struct FunctionValidationContext
 	void throw_(ExceptionTypeImm imm)
 	{
 		VALIDATE_FEATURE("throw", exceptionHandling);
-		VALIDATE_INDEX(imm.exceptionTypeIndex, module.exceptionTypes.size());
-		const ExceptionType& exceptionType = module.exceptionTypes.getType(imm.exceptionTypeIndex);
-		popAndValidateTypeTuple("exception arguments", exceptionType.params);
+		VALIDATE_INDEX(imm.exceptionTypeIndex, module.tags.size());
+                const IndexedTagType& tagType = module.tags.getType(imm.exceptionTypeIndex);
+		VALIDATE_INDEX(tagType.index, module.types.size());
+		const auto& type = module.types[tagType.index];
+		popAndValidateTypeTuple("exception arguments", type.params());
 		enterUnreachable();
 	}
 
@@ -1035,7 +1072,7 @@ void IR::validateImports(ModuleValidationState& state)
 	WAVM_ASSERT(module.imports.size()
 				== module.functions.imports.size() + module.tables.imports.size()
 					   + module.memories.imports.size() + module.globals.imports.size()
-					   + module.exceptionTypes.imports.size());
+					   + module.tags.imports.size());
 
 	for(Uptr functionIndex = 0; functionIndex < module.functions.imports.size(); ++functionIndex)
 	{
@@ -1051,8 +1088,10 @@ void IR::validateImports(ModuleValidationState& state)
 		if(globalImport.type.isMutable)
 		{ VALIDATE_FEATURE("mutable imported global", importExportMutableGlobals); }
 	}
-	for(auto& exceptionTypeImport : module.exceptionTypes.imports)
-	{ validate(module, exceptionTypeImport.type.params); }
+	for(auto& tagImport : module.tags.imports)
+	{
+		validateTagType(module, tagImport.type);
+	}
 
 	if(module.tables.size() > 1) { VALIDATE_FEATURE("multiple tables", referenceTypes); }
 	if(module.memories.size() > 1) { VALIDATE_FEATURE("multiple memories", multipleMemories); }
@@ -1092,11 +1131,11 @@ void IR::validateGlobalDefs(ModuleValidationState& state)
 	}
 }
 
-void IR::validateExceptionTypeDefs(ModuleValidationState& state)
+void IR::validateTagDefs(ModuleValidationState& state)
 {
 	const Module& module = state.module;
-	for(auto& exceptionTypeDef : module.exceptionTypes.defs)
-	{ validate(module, exceptionTypeDef.type.params); }
+	for(auto& tagDef : module.tags.defs)
+	{ validateTagType(module, tagDef.type); }
 }
 
 void IR::validateTableDefs(ModuleValidationState& state)
@@ -1136,8 +1175,8 @@ void IR::validateExports(ModuleValidationState& state)
 								false,
 								"exported global index");
 			break;
-		case ExternKind::exceptionType:
-			VALIDATE_INDEX(exportIt.index, module.exceptionTypes.size());
+		case ExternKind::tag:
+			VALIDATE_INDEX(exportIt.index, module.tags.size());
 			break;
 
 		case ExternKind::invalid:
@@ -1258,9 +1297,7 @@ void IR::validateElemSegments(ModuleValidationState& state)
 				case ExternKind::table: VALIDATE_INDEX(externIndex, module.tables.size()); break;
 				case ExternKind::memory: VALIDATE_INDEX(externIndex, module.memories.size()); break;
 				case ExternKind::global: VALIDATE_INDEX(externIndex, module.globals.size()); break;
-				case ExternKind::exceptionType:
-					VALIDATE_INDEX(externIndex, module.exceptionTypes.size());
-					break;
+				case ExternKind::tag: VALIDATE_INDEX(externIndex, module.tags.size()); break;
 				case ExternKind::invalid:
 				default: WAVM_UNREACHABLE();
 				};

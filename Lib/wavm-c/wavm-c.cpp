@@ -155,8 +155,8 @@ static wasm_externtype_t* as_externtype(ExternType type)
 	case ExternKind::table: return as_externtype(asTableType(type));
 	case ExternKind::memory: return as_externtype(asMemoryType(type));
 	case ExternKind::global: return as_externtype(asGlobalType(type));
-	case ExternKind::exceptionType:
-		Errors::unimplemented("Converting exception type to C API wasm_externtype_t");
+	case ExternKind::tag:
+		Errors::unimplemented("Converting tag to C API wasm_externtype_t");
 
 	case ExternKind::invalid:
 	default: WAVM_UNREACHABLE();
@@ -463,7 +463,7 @@ void wasm_externtype_delete(wasm_externtype_t* type)
 	case ExternKind::table: wasm_tabletype_delete(wasm_externtype_as_tabletype(type)); break;
 	case ExternKind::memory: wasm_memorytype_delete(wasm_externtype_as_memorytype(type)); break;
 	case ExternKind::global: wasm_globaltype_delete(wasm_externtype_as_globaltype(type)); break;
-	case ExternKind::exceptionType: Errors::unimplemented("exception types in C API");
+	case ExternKind::tag: Errors::unimplemented("tags in C API");
 
 	case ExternKind::invalid:
 	default: WAVM_UNREACHABLE();
@@ -484,7 +484,7 @@ wasm_externtype_t* wasm_externtype_copy(wasm_externtype_t* type)
 	case ExternKind::global:
 		return wasm_globaltype_as_externtype(
 			wasm_globaltype_copy(wasm_externtype_as_globaltype(type)));
-	case ExternKind::exceptionType: Errors::unimplemented("exception types in C API");
+	case ExternKind::tag: Errors::unimplemented("tags in C API");
 
 	case ExternKind::invalid:
 	default: WAVM_UNREACHABLE();
@@ -498,7 +498,7 @@ wasm_externkind_t wasm_externtype_kind(const wasm_externtype_t* type)
 	case ExternKind::table: return WASM_EXTERN_TABLE;
 	case ExternKind::memory: return WASM_EXTERN_MEMORY;
 	case ExternKind::global: return WASM_EXTERN_GLOBAL;
-	case ExternKind::exceptionType: Errors::unimplemented("exception types in C API");
+	case ExternKind::tag: Errors::unimplemented("tags in C API");
 
 	case ExternKind::invalid:
 	default: WAVM_UNREACHABLE();
@@ -836,8 +836,8 @@ void wasm_module_import(const wasm_module_t* module, size_t index, wasm_import_t
 		out_import->type = as_externtype(globalImport.type);
 		break;
 	}
-	case ExternKind::exceptionType: {
-		Errors::fatal("wasm_module_import can't handle exception type imports");
+	case ExternKind::tag: {
+		Errors::fatal("wasm_module_import can't handle tag imports");
 	}
 
 	case ExternKind::invalid:
@@ -869,8 +869,8 @@ void wasm_module_export(const wasm_module_t* module, size_t index, wasm_export_t
 	case ExternKind::global:
 		out_export->type = as_externtype(irModule.globals.getType(export_.index));
 		break;
-	case ExternKind::exceptionType:
-		Errors::fatal("wasm_module_export can't handle exception type exports");
+	case ExternKind::tag:
+		Errors::fatal("wasm_module_export can't handle tag exports");
 
 	case ExternKind::invalid:
 	default: WAVM_UNREACHABLE();
@@ -1079,7 +1079,7 @@ wasm_externkind_t wasm_extern_kind(const wasm_extern_t* object)
 	case ObjectKind::table: return WASM_EXTERN_TABLE;
 	case ObjectKind::memory: return WASM_EXTERN_MEMORY;
 	case ObjectKind::global: return WASM_EXTERN_GLOBAL;
-	case ObjectKind::exceptionType: Errors::fatal("wasm_extern_kind can't handle exception types");
+	case ObjectKind::tag: Errors::fatal("wasm_extern_kind can't handle tags");
 
 	case ObjectKind::instance:
 	case ObjectKind::context:

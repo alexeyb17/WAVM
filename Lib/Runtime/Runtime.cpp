@@ -45,7 +45,7 @@ using namespace WAVM::Runtime;
 DEFINE_GCOBJECT_TYPE(ObjectKind::table, Table, Table);
 DEFINE_GCOBJECT_TYPE(ObjectKind::memory, Memory, Memory);
 DEFINE_GCOBJECT_TYPE(ObjectKind::global, Global, Global);
-DEFINE_GCOBJECT_TYPE(ObjectKind::exceptionType, ExceptionType, ExceptionType);
+DEFINE_GCOBJECT_TYPE(ObjectKind::tag, ExceptionType, ExceptionType);
 DEFINE_GCOBJECT_TYPE(ObjectKind::instance, Instance, Instance);
 DEFINE_GCOBJECT_TYPE(ObjectKind::context, Context, Context);
 DEFINE_GCOBJECT_TYPE(ObjectKind::compartment, Compartment, Compartment);
@@ -114,8 +114,8 @@ bool Runtime::isA(const Object* object, const ExternType& type)
 	case ExternKind::global: return isSubtype(asGlobal(object)->type, asGlobalType(type));
 	case ExternKind::table: return isSubtype(getTableType(asTable(object)), asTableType(type));
 	case ExternKind::memory: return isSubtype(getMemoryType(asMemory(object)), asMemoryType(type));
-	case ExternKind::exceptionType:
-		return isSubtype(asExceptionType(type).params, asExceptionType(object)->sig.params);
+	case ExternKind::tag:
+		return isSubtype(asTagType(type).params(), asExceptionType(object)->sig);
 
 	case ExternKind::invalid:
 	default: WAVM_UNREACHABLE();
@@ -130,7 +130,7 @@ ExternType Runtime::getExternType(const Object* object)
 	case ObjectKind::global: return asGlobal(object)->type;
 	case ObjectKind::table: return getTableType(asTable(object));
 	case ObjectKind::memory: return getMemoryType(asMemory(object));
-	case ObjectKind::exceptionType: return asExceptionType(object)->sig;
+	case ObjectKind::tag: return TagType(asExceptionType(object)->sig);
 
 	case ObjectKind::instance:
 	case ObjectKind::context:
@@ -141,7 +141,7 @@ ExternType Runtime::getExternType(const Object* object)
 	};
 }
 
-FunctionType Runtime::getFunctionType(const Function* function) { return function->encodedType; }
+FunctionType Runtime::getFunctionType(const Function* function) { return FunctionType(function->encodedType); }
 
 Context* Runtime::getContextFromRuntimeData(ContextRuntimeData* contextRuntimeData)
 {

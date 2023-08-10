@@ -121,8 +121,9 @@ namespace WAVM { namespace IR {
 			default: WAVM_UNREACHABLE();
 			};
 		}
-		std::string describeImm(ExceptionTypeImm) { return ""; }
-		std::string describeImm(RethrowImm) { return ""; }
+		std::string describeImm(ExceptionTypeImm imm) { return " " + std::to_string(imm.exceptionTypeIndex); }
+		std::string describeImm(DelegateImm imm) { return " " + std::to_string(imm.delegateDepth); }
+		std::string describeImm(RethrowImm imm) { return " " + std::to_string(imm.catchDepth); }
 
 		std::string describeImm(DataSegmentAndMemImm imm)
 		{

@@ -182,7 +182,7 @@ Instance* Intrinsics::instantiateModule(
 	for(Uptr functionImportIndex = 0; functionImportIndex < irModule.functions.imports.size();
 		++functionImportIndex)
 	{
-		const FunctionImport& functionImport = irModule.functions.imports[functionImportIndex];
+		const auto& functionImport = irModule.functions.imports[functionImportIndex];
 		const FunctionType intrinsicFunctionType = irModule.types[functionImport.type.index];
 		const FunctionType wasmFunctionType(intrinsicFunctionType.results(),
 											intrinsicFunctionType.params(),

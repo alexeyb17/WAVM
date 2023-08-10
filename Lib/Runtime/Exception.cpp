@@ -27,7 +27,7 @@ namespace WAVM { namespace Runtime {
 
 #define DEFINE_INTRINSIC_EXCEPTION_TYPE(name, ...)                                                 \
 	ExceptionType* Runtime::ExceptionTypes::name = new ExceptionType(                              \
-		nullptr, IR::ExceptionType{IR::TypeTuple({__VA_ARGS__})}, "wavm." #name);
+		nullptr, IR::TypeTuple({__VA_ARGS__}), "wavm." #name);
 WAVM_ENUM_INTRINSIC_EXCEPTION_TYPES(DEFINE_INTRINSIC_EXCEPTION_TYPE)
 #undef DEFINE_INTRINSIC_EXCEPTION_TYPE
 
@@ -120,7 +120,7 @@ std::vector<std::string> Runtime::describeCallStack(const Platform::CallStack& c
 }
 
 ExceptionType* Runtime::createExceptionType(Compartment* compartment,
-											IR::ExceptionType sig,
+											const IR::TypeTuple& sig,
 											std::string&& debugName)
 {
 	auto exceptionType = new ExceptionType(compartment, sig, std::move(debugName));
@@ -165,7 +165,7 @@ std::string Runtime::describeExceptionType(const ExceptionType* type)
 
 IR::TypeTuple Runtime::getExceptionTypeParameters(const ExceptionType* type)
 {
-	return type->sig.params;
+	return type->sig;
 }
 
 Exception* Runtime::createException(ExceptionType* type,
@@ -173,7 +173,7 @@ Exception* Runtime::createException(ExceptionType* type,
 									Uptr numArguments,
 									Platform::CallStack&& callStack)
 {
-	const IR::TypeTuple& params = type->sig.params;
+	const IR::TypeTuple& params = type->sig;
 	WAVM_ASSERT(numArguments == params.size());
 
 	const bool isUserException = type->compartment != nullptr;
@@ -194,7 +194,7 @@ ExceptionType* Runtime::getExceptionType(const Exception* exception) { return ex
 
 IR::UntaggedValue Runtime::getExceptionArgument(const Exception* exception, Uptr argIndex)
 {
-	WAVM_ERROR_UNLESS(argIndex < exception->type->sig.params.size());
+	WAVM_ERROR_UNLESS(argIndex < exception->type->sig.size());
 	return exception->arguments[argIndex];
 }
 
@@ -242,14 +242,14 @@ std::string Runtime::describeException(const Exception* exception)
 		result += asString(expectedSignature);
 		result += ')';
 	}
-	else if(exception->type->sig.params.size())
+	else if(exception->type->sig.size())
 	{
 		result += '(';
-		for(Uptr argumentIndex = 0; argumentIndex < exception->type->sig.params.size();
+		for(Uptr argumentIndex = 0; argumentIndex < exception->type->sig.size();
 			++argumentIndex)
 		{
 			if(argumentIndex != 0) { result += ", "; }
-			result += asString(IR::Value(exception->type->sig.params[argumentIndex],
+			result += asString(IR::Value(exception->type->sig[argumentIndex],
 										 exception->arguments[argumentIndex]));
 		}
 		result += ')';
@@ -270,7 +270,7 @@ std::string Runtime::describeException(const Exception* exception)
 [[noreturn]] void Runtime::throwException(ExceptionType* type,
 										  const std::vector<IR::UntaggedValue>& arguments)
 {
-	WAVM_ASSERT(type->sig.params.size() == arguments.size());
+	WAVM_ASSERT(type->sig.size() == arguments.size());
 	throwException(
 		createException(type, arguments.data(), arguments.size(), Platform::captureCallStack(1)));
 }
@@ -292,7 +292,7 @@ WAVM_DEFINE_INTRINSIC_FUNCTION(wavmIntrinsicsException,
 	auto args = reinterpret_cast<const IR::UntaggedValue*>(Uptr(argsBits));
 
 	Exception* exception = createException(
-		exceptionType, args, exceptionType->sig.params.size(), Platform::captureCallStack(1));
+		exceptionType, args, exceptionType->sig.size(), Platform::captureCallStack(1));
 
 	return reinterpret_cast<Uptr>(exception);
 }

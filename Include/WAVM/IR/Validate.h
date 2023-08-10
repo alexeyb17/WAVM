@@ -70,7 +70,7 @@ namespace WAVM { namespace IR {
 	WAVM_API void validateTableDefs(ModuleValidationState& state);
 	WAVM_API void validateMemoryDefs(ModuleValidationState& state);
 	WAVM_API void validateGlobalDefs(ModuleValidationState& state);
-	WAVM_API void validateExceptionTypeDefs(ModuleValidationState& state);
+	WAVM_API void validateTagDefs(ModuleValidationState& state);
 	WAVM_API void validateExports(ModuleValidationState& state);
 	WAVM_API void validateStartFunction(ModuleValidationState& state);
 	WAVM_API void validateElemSegments(ModuleValidationState& state);
@@ -84,7 +84,7 @@ namespace WAVM { namespace IR {
 		validateTableDefs(state);
 		validateMemoryDefs(state);
 		validateGlobalDefs(state);
-		validateExceptionTypeDefs(state);
+		validateTagDefs(state);
 		validateExports(state);
 		validateStartFunction(state);
 		validateElemSegments(state);

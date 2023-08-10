@@ -20,7 +20,7 @@ namespace WAVM {
 			verifyMatches(aModule.tables, bModule.tables);
 			verifyMatches(aModule.memories, bModule.memories);
 			verifyMatches(aModule.globals, bModule.globals);
-			verifyMatches(aModule.exceptionTypes, bModule.exceptionTypes);
+			verifyMatches(aModule.tags, bModule.tags);
 
 			if(aModule.startFunctionIndex != bModule.startFunctionIndex) { failVerification(); }
 
@@ -219,6 +219,11 @@ namespace WAVM {
 			if(a.catchDepth != b.catchDepth) { failVerification(); }
 		}
 
+		void verifyMatches(DelegateImm a, DelegateImm b)
+		{
+			if(a.delegateDepth != b.delegateDepth) { failVerification(); }
+		}
+
 		void verifyMatches(DataSegmentAndMemImm a, DataSegmentAndMemImm b)
 		{
 			if(a.dataSegmentIndex != b.dataSegmentIndex) { failVerification(); }
@@ -325,12 +330,12 @@ namespace WAVM {
 			if(a.initializer != b.initializer) { failVerification(); }
 		}
 
-		void verifyMatches(const ExceptionType& a, const ExceptionType& b)
+		void verifyMatches(const IndexedTagType& a, const IndexedTagType& b)
 		{
 			if(a != b) { failVerification(); }
 		}
 
-		void verifyMatches(const ExceptionTypeDef& a, const ExceptionTypeDef& b)
+		void verifyMatches(const TagDef& a, const TagDef& b)
 		{
 			verifyMatches(a.type, b.type);
 		}

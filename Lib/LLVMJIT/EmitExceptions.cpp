@@ -245,7 +245,9 @@ void EmitFunctionContext::catch_(ExceptionTypeImm imm)
 
 	// Look up the exception type instance to be caught
 	WAVM_ASSERT(imm.exceptionTypeIndex < moduleContext.exceptionTypeIds.size());
-	const IR::ExceptionType catchType = irModule.exceptionTypes.getType(imm.exceptionTypeIndex);
+	const auto& tagType = irModule.tags.getType(imm.exceptionTypeIndex);
+	WAVM_ASSERT(tagType.index < irModule.types.size());
+	const auto& exceptionParams = irModule.types[tagType.index].params();
 	llvm::Constant* catchTypeId = moduleContext.exceptionTypeIds[imm.exceptionTypeIndex];
 
 	irBuilder.SetInsertPoint(catchContext.nextHandlerBlock);
@@ -258,12 +260,12 @@ void EmitFunctionContext::catch_(ExceptionTypeImm imm)
 	irBuilder.SetInsertPoint(catchBlock);
 
 	// Push the exception arguments on the stack.
-	for(Uptr argumentIndex = 0; argumentIndex < catchType.params.size(); ++argumentIndex)
+	for(Uptr argumentIndex = 0; argumentIndex < exceptionParams.size(); ++argumentIndex)
 	{
-		const ValueType parameters = catchType.params[argumentIndex];
+		const ValueType parameters = exceptionParams[argumentIndex];
 		const Uptr argOffset
 			= offsetof(Exception, arguments)
-			  + (catchType.params.size() - argumentIndex - 1) * sizeof(Exception::arguments[0]);
+			  + (exceptionParams.size() - argumentIndex - 1) * sizeof(Exception::arguments[0]);
 		auto argument = loadFromUntypedPointer(
 			createInBoundsGEP(llvmContext.i8Type, catchContext.exceptionPointer,
 							  {emitLiteral(llvmContext, argOffset)}),
@@ -319,16 +321,18 @@ void EmitFunctionContext::catch_all(NoImm)
 
 void EmitFunctionContext::throw_(ExceptionTypeImm imm)
 {
-	const IR::ExceptionType& exceptionType
-		= irModule.exceptionTypes.getType(imm.exceptionTypeIndex);
+	WAVM_ASSERT(imm.exceptionTypeIndex < moduleContext.exceptionTypeIds.size());
+	const auto& tagType = irModule.tags.getType(imm.exceptionTypeIndex);
+	WAVM_ASSERT(tagType.index < irModule.types.size());
+	const auto& exceptionParams = irModule.types[tagType.index].params();
 
-	const Uptr numArgs = exceptionType.params.size();
+	const Uptr numArgs = exceptionParams.size();
 	const Uptr numArgBytes = numArgs * sizeof(UntaggedValue);
 	auto argBaseAddress
 		= irBuilder.CreateAlloca(llvmContext.i8Type, emitLiteral(llvmContext, numArgBytes));
 	argBaseAddress->setAlignment(LLVM_ALIGNMENT(sizeof(UntaggedValue)));
 
-	for(Uptr argIndex = 0; argIndex < exceptionType.params.size(); ++argIndex)
+	for(Uptr argIndex = 0; argIndex < exceptionParams.size(); ++argIndex)
 	{
 		auto elementValue = pop();
 		storeToUntypedPointer(
@@ -375,4 +379,8 @@ void EmitFunctionContext::rethrow(RethrowImm imm)
 
 	irBuilder.CreateUnreachable();
 	enterUnreachable();
+}
+void EmitFunctionContext::delegate(DelegateImm imm)
+{
+	// NIY
 }

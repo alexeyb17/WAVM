@@ -28,7 +28,7 @@ enum class NameSubsectionType : U8
 	global = 7,
 	elemSegment = 8,
 	dataSegment = 9,
-	exceptionTypes = 10,
+	tag = 11,
 	invalid = 0xff
 };
 
@@ -220,13 +220,13 @@ static void deserializeNameSubsection(const Module& module,
 		}
 		deserializeNameMap(substream, outNames.dataSegments, outNames.dataSegments.size());
 		break;
-	case NameSubsectionType::exceptionTypes:
+	case NameSubsectionType::tag:
 		if(!module.featureSpec.extendedNameSection)
 		{
 			throw FatalSerializationException(
 				"exception type name subsection requires extendedNameSection feature");
 		}
-		deserializeNameMap(substream, outNames.exceptionTypes, outNames.exceptionTypes.size());
+		deserializeNameMap(substream, outNames.tags, outNames.tags.size());
 		break;
 
 	case NameSubsectionType::invalid:
@@ -263,7 +263,7 @@ void IR::getDisassemblyNames(const Module& module, DisassemblyNames& outNames)
 	outNames.globals.insert(outNames.globals.end(), module.globals.size(), "");
 	outNames.elemSegments.insert(outNames.elemSegments.end(), module.elemSegments.size(), "");
 	outNames.dataSegments.insert(outNames.dataSegments.end(), module.dataSegments.size(), "");
-	outNames.exceptionTypes.insert(outNames.exceptionTypes.end(), module.exceptionTypes.size(), "");
+	outNames.tags.insert(outNames.tags.end(), module.tags.size(), "");
 
 	// Deserialize the name section, if it is present.
 	Uptr customSectionIndex = 0;
@@ -403,10 +403,10 @@ void IR::setDisassemblyNames(Module& module, const DisassemblyNames& names)
 				serializeNameMap(subsectionStream, names.dataSegments);
 			});
 
-		// Exception types
+		// Tags
 		serializeNameSubsection(
-			stream, NameSubsectionType::exceptionTypes, [&names](OutputStream& subsectionStream) {
-				serializeNameMap(subsectionStream, names.exceptionTypes);
+			stream, NameSubsectionType::tag, [&names](OutputStream& subsectionStream) {
+				serializeNameMap(subsectionStream, names.tags);
 			});
 	}
 

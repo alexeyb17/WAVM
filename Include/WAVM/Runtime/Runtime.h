@@ -193,7 +193,7 @@ namespace WAVM { namespace Runtime {
 
 	// Creates an exception type instance.
 	WAVM_API ExceptionType* createExceptionType(Compartment* compartment,
-												IR::ExceptionType sig,
+												const IR::TypeTuple& sig,
 												std::string&& debugName);
 
 	// Returns a string that describes the given exception type.
@@ -497,7 +497,7 @@ namespace WAVM { namespace Runtime {
 											const IR::GlobalType& type);
 	WAVM_API ExceptionType* getTypedInstanceExport(const Instance* instance,
 												   const std::string& name,
-												   const IR::ExceptionType& type);
+                                                       const IR::IndexedTagType& type);
 
 	// Gets an array of the objects exported by an instance. The array indices correspond to the
 	// IR::Module::exports array.

@@ -68,7 +68,7 @@
 	VISIT_LITERAL_TOKEN(quote)                                                                     \
 	VISIT_LITERAL_TOKEN(binary)                                                                    \
 	VISIT_LITERAL_TOKEN(v128)                                                                      \
-	VISIT_LITERAL_TOKEN(exception_type)                                                            \
+	VISIT_LITERAL_TOKEN(tag)                                                                       \
 	VISIT_LITERAL_TOKEN(custom_section)                                                            \
 	VISIT_LITERAL_TOKEN(after)                                                                     \
 	VISIT_LITERAL_TOKEN(before)                                                                    \
@@ -79,6 +79,7 @@
 	VISIT_LITERAL_TOKEN(intrinsic_with_context_switch)                                             \
 	VISIT_LITERAL_TOKEN(c)                                                                         \
 	VISIT_LITERAL_TOKEN(c_api_callback)                                                            \
+	VISIT_LITERAL_TOKEN(do)                                                                        \
 	VISIT_TOKEN(ref_extern, "'ref.extern'", "ref.extern")
 
 #define ENUM_TOKENS()                                                                              \

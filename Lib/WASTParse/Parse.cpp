@@ -290,11 +290,45 @@ UnresolvedFunctionType WAST::parseFunctionTypeRefAndOrDecl(
 	return result;
 }
 
+FunctionType WAST::parseTagType(CursorState* cursor,
+								NameToIndexMap& outLocalNameToIndexMap,
+								std::vector<std::string>& outLocalDisassemblyNames)
+{
+	std::vector<ValueType> parameters;
+
+	// Parse the function parameters.
+	while(tryParseParenthesizedTagged(cursor, t_param, [&] {
+		Name parameterName;
+		if(tryParseName(cursor, parameterName))
+		{
+			// (param <name> <type>)
+			bindName(cursor->parseState, outLocalNameToIndexMap, parameterName, parameters.size());
+			parameters.push_back(parseValueType(cursor));
+			outLocalDisassemblyNames.push_back(parameterName.getString());
+		}
+		else
+		{
+			// (param <type>*)
+			ValueType parameterType;
+			while(tryParseValueType(cursor, parameterType))
+			{
+				parameters.push_back(parameterType);
+				outLocalDisassemblyNames.emplace_back();
+			};
+		}
+	}))
+	{};
+
+	return FunctionType(TypeTuple({}), TypeTuple(parameters), CallingConvention::wasm);
+}
+
 IndexedFunctionType WAST::resolveFunctionType(ModuleState* moduleState,
 											  const UnresolvedFunctionType& unresolvedType)
 {
 	if(!unresolvedType.reference)
-	{ return getUniqueFunctionTypeIndex(moduleState, unresolvedType.explicitType); }
+	{
+		return { getUniqueFunctionTypeIndex(moduleState, unresolvedType.explicitType) };
+	}
 	else
 	{
 		// Resolve the referenced type.
@@ -327,8 +361,13 @@ IndexedFunctionType WAST::resolveFunctionType(ModuleState* moduleState,
 	}
 }
 
-IndexedFunctionType WAST::getUniqueFunctionTypeIndex(ModuleState* moduleState,
-													 FunctionType functionType)
+IndexedTagType WAST::resolveTagType(ModuleState* moduleState, const UnresolvedFunctionType& unresolvedType)
+{
+    return { IndexedTagType::AttributeException,
+				getUniqueFunctionTypeIndex(moduleState, unresolvedType.explicitType) };
+}
+
+Uptr WAST::getUniqueFunctionTypeIndex(ModuleState* moduleState, FunctionType functionType)
 {
 	// If this type is not in the module's type table yet, add it.
 	Uptr& functionTypeIndex
@@ -339,7 +378,7 @@ IndexedFunctionType WAST::getUniqueFunctionTypeIndex(ModuleState* moduleState,
 		moduleState->module.types.push_back(functionType);
 		moduleState->disassemblyNames.types.emplace_back();
 	}
-	return IndexedFunctionType{functionTypeIndex};
+	return functionTypeIndex;
 }
 
 static void parseStringChars(const char*& nextChar, ParseState* parseState, std::string& outString);
@@ -543,15 +582,15 @@ Uptr WAST::resolveExternRef(ModuleState* moduleState, ExternKind externKind, con
 						  moduleState->memoryNameToIndexMap,
 						  moduleState->module.memories.size(),
 						  ref);
+	case ExternKind::tag:
+		return resolveRef(moduleState->parseState,
+						  moduleState->exceptionTypeNameToIndexMap,
+						  moduleState->module.tags.size(),
+						  ref);
 	case ExternKind::global:
 		return resolveRef(moduleState->parseState,
 						  moduleState->globalNameToIndexMap,
 						  moduleState->module.globals.size(),
-						  ref);
-	case ExternKind::exceptionType:
-		return resolveRef(moduleState->parseState,
-						  moduleState->exceptionTypeNameToIndexMap,
-						  moduleState->module.exceptionTypes.size(),
 						  ref);
 
 	case ExternKind::invalid:

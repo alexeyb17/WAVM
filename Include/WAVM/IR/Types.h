@@ -289,23 +289,21 @@ namespace WAVM { namespace IR {
 		};
 	}
 
-	// The type of a WebAssembly function
-	struct FunctionType
+	// Generic WebAssembly type
+	struct TypeType
 	{
-		// Used to represent a function type as an abstract pointer-sized value in the runtime.
+		// Used to represent a type as an abstract pointer-sized value in the runtime.
 		struct Encoding
 		{
 			Uptr impl;
 		};
 
-		FunctionType(TypeTuple inResults = TypeTuple(),
-					 TypeTuple inParams = TypeTuple(),
-					 CallingConvention inCallingConvention = CallingConvention::wasm)
-		: impl(getUniqueImpl(inResults, inParams, inCallingConvention))
+		TypeType(TypeTuple inResults, TypeTuple inParams, CallingConvention inCallingConvention)
+			: impl(getUniqueImpl(inResults, inParams, inCallingConvention))
 		{
 		}
 
-		FunctionType(Encoding encoding) : impl(reinterpret_cast<const Impl*>(encoding.impl)) {}
+		TypeType(Encoding encoding) : impl(reinterpret_cast<const Impl*>(encoding.impl)) {}
 
 		TypeTuple results() const { return impl->results; }
 		TypeTuple params() const { return impl->params; }
@@ -313,12 +311,12 @@ namespace WAVM { namespace IR {
 		Uptr getHash() const { return impl->hash; }
 		Encoding getEncoding() const { return Encoding{reinterpret_cast<Uptr>(impl)}; }
 
-		friend bool operator==(const FunctionType& left, const FunctionType& right)
+		friend bool operator==(const TypeType& left, const TypeType& right)
 		{
 			return left.impl == right.impl;
 		}
 
-		friend bool operator!=(const FunctionType& left, const FunctionType& right)
+		friend bool operator!=(const TypeType& left, const TypeType& right)
 		{
 			return left.impl != right.impl;
 		}
@@ -336,11 +334,33 @@ namespace WAVM { namespace IR {
 
 		const Impl* impl;
 
-		FunctionType(const Impl* inImpl) : impl(inImpl) {}
+		TypeType(const Impl* inImpl) : impl(inImpl) {}
 
 		WAVM_API static const Impl* getUniqueImpl(TypeTuple results,
 												  TypeTuple params,
 												  CallingConvention callingConvention);
+	};
+
+	// WebAssembly function type
+	struct FunctionType : TypeType
+	{
+		explicit FunctionType(TypeTuple inResults = TypeTuple(),
+							  TypeTuple inParams = TypeTuple(),
+							  CallingConvention inCallingConvention = CallingConvention::wasm)
+			: TypeType(inResults, inParams, inCallingConvention)
+		{
+		}
+
+		explicit FunctionType(Encoding encoding) : TypeType(encoding) {}
+	};
+
+	// WebAssembly tag type
+	struct TagType : TypeType
+	{
+		explicit TagType(TypeTuple inParams = TypeTuple())
+			: TypeType(TypeTuple{}, inParams, CallingConvention::wasm)
+		{
+		}
 	};
 
 	struct IndexedFunctionType
@@ -524,6 +544,40 @@ namespace WAVM { namespace IR {
 			   + (memoryType.isShared ? " shared" : "");
 	}
 
+	// Tag type
+	struct IndexedTagType
+	{
+		enum Attribute: U8
+		{
+			AttributeException = 0
+		};
+
+		U8 attribute;
+		Uptr index; // Index in Types section
+
+		friend bool operator==(const IndexedTagType& left, const IndexedTagType& right)
+		{
+			return left.attribute == right.attribute && left.index == right.index;
+		}
+		friend bool operator!=(const IndexedTagType& left, const IndexedTagType& right)
+		{
+			return !(left == right);
+		}
+	};
+
+	inline std::string asString(const IndexedTagType& tagType)
+	{
+		// Currently only `exception tags` are supported.
+		std::string attr = "";
+		switch (tagType.attribute)
+		{
+		case IndexedTagType::AttributeException: attr = "exception "; break;
+		default: break;
+		}
+
+		return attr + std::to_string(tagType.index);
+	}
+
 	// The type of a global
 	struct GlobalType
 	{
@@ -567,25 +621,6 @@ namespace WAVM { namespace IR {
 		}
 	}
 
-	struct ExceptionType
-	{
-		TypeTuple params;
-
-		friend bool operator==(const ExceptionType& left, const ExceptionType& right)
-		{
-			return left.params == right.params;
-		}
-		friend bool operator!=(const ExceptionType& left, const ExceptionType& right)
-		{
-			return left.params != right.params;
-		}
-	};
-
-	inline std::string asString(const ExceptionType& exceptionType)
-	{
-		return asString(exceptionType.params);
-	}
-
 	// The type of an external object: something that can be imported or exported from a module.
 	enum class ExternKind : U8
 	{
@@ -595,8 +630,8 @@ namespace WAVM { namespace IR {
 		function,
 		table,
 		memory,
+		tag,
 		global,
-		exceptionType,
 	};
 	struct ExternType
 	{
@@ -606,11 +641,8 @@ namespace WAVM { namespace IR {
 		ExternType(FunctionType inFunction) : kind(ExternKind::function), function(inFunction) {}
 		ExternType(TableType inTable) : kind(ExternKind::table), table(inTable) {}
 		ExternType(MemoryType inMemory) : kind(ExternKind::memory), memory(inMemory) {}
+		ExternType(TagType inTag) : kind(ExternKind::tag), tag(inTag) {}
 		ExternType(GlobalType inGlobal) : kind(ExternKind::global), global(inGlobal) {}
-		ExternType(ExceptionType inExceptionType)
-		: kind(ExternKind::exceptionType), exceptionType(inExceptionType)
-		{
-		}
 		ExternType(ExternKind inKind) : kind(inKind) {}
 
 		friend FunctionType asFunctionType(const ExternType& objectType)
@@ -628,15 +660,15 @@ namespace WAVM { namespace IR {
 			WAVM_ASSERT(objectType.kind == ExternKind::memory);
 			return objectType.memory;
 		}
+		friend TagType asTagType(const ExternType& objectType)
+		{
+			WAVM_ASSERT(objectType.kind == ExternKind::tag);
+			return objectType.tag;
+		}
 		friend GlobalType asGlobalType(const ExternType& objectType)
 		{
 			WAVM_ASSERT(objectType.kind == ExternKind::global);
 			return objectType.global;
-		}
-		friend ExceptionType asExceptionType(const ExternType& objectType)
-		{
-			WAVM_ASSERT(objectType.kind == ExternKind::exceptionType);
-			return objectType.exceptionType;
 		}
 
 	private:
@@ -645,8 +677,8 @@ namespace WAVM { namespace IR {
 			FunctionType function;
 			TableType table;
 			MemoryType memory;
+			TagType tag;
 			GlobalType global;
-			ExceptionType exceptionType;
 		};
 	};
 
@@ -657,9 +689,8 @@ namespace WAVM { namespace IR {
 		case ExternKind::function: return "func " + asString(asFunctionType(objectType));
 		case ExternKind::table: return "table " + asString(asTableType(objectType));
 		case ExternKind::memory: return "memory " + asString(asMemoryType(objectType));
+		case ExternKind::tag: return "tag" + asString(asTagType(objectType));
 		case ExternKind::global: return asString(asGlobalType(objectType));
-		case ExternKind::exceptionType:
-			return "exception_type " + asString(asExceptionType(objectType));
 
 		case ExternKind::invalid:
 		default: WAVM_UNREACHABLE();
@@ -674,8 +705,8 @@ namespace WAVM { namespace IR {
 
 		case ExternKind::table:
 		case ExternKind::memory:
+		case ExternKind::tag:
 		case ExternKind::global:
-		case ExternKind::exceptionType:
 		case ExternKind::invalid:
 		default: return ReferenceType::externref;
 		}

@@ -157,8 +157,7 @@ Object* Runtime::remapToClonedCompartment(const Object* object, const Compartmen
 	case ObjectKind::table: return newCompartment->tables[asTable(object)->id];
 	case ObjectKind::memory: return newCompartment->memories[asMemory(object)->id];
 	case ObjectKind::global: return newCompartment->globals[asGlobal(object)->id];
-	case ObjectKind::exceptionType:
-		return newCompartment->exceptionTypes[asExceptionType(object)->id];
+	case ObjectKind::tag: return newCompartment->exceptionTypes[asExceptionType(object)->id];
 	case ObjectKind::instance: return newCompartment->instances[asInstance(object)->id];
 
 	case ObjectKind::function:

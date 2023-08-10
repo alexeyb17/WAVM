@@ -572,7 +572,7 @@ static ExternKind generateExternKind(RandomStream& random)
 	case 1: return ExternKind::table;
 	case 2: return ExternKind::memory;
 	case 3: return ExternKind::global;
-	case 4: return ExternKind::exceptionType;
+	case 4: return ExternKind::tag;
 	default: WAVM_UNREACHABLE();
 	};
 }
@@ -1262,11 +1262,10 @@ void IR::generateValidModule(Module& module, RandomStream& random)
 					if(module.globals.size())
 					{ contents->elemIndices.push_back(random.get(module.globals.size() - 1)); }
 					break;
-				case ExternKind::exceptionType:
-					if(module.exceptionTypes.size())
+				case ExternKind::tag:
+					if(module.tags.size())
 					{
-						contents->elemIndices.push_back(
-							random.get(module.exceptionTypes.size() - 1));
+						contents->elemIndices.push_back(random.get(module.tags.size() - 1));
 					}
 					break;
 

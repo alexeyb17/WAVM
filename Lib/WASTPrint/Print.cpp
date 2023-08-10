@@ -263,15 +263,6 @@ static void print(std::string& string, GlobalType type)
 	if(type.isMutable) { string += ")"; }
 }
 
-static void print(std::string& string, const ExceptionType& type)
-{
-	for(ValueType param : type.params)
-	{
-		string += ' ';
-		print(string, param);
-	}
-}
-
 static void printReferencedType(std::string& string, const ReferenceType type)
 {
 	switch(type)
@@ -339,7 +330,7 @@ struct ModulePrintContext
 		// and add the "$" sigil.
 		IR::getDisassemblyNames(module, names);
 		const Uptr numGlobalNames = names.types.size() + names.tables.size() + names.memories.size()
-									+ names.globals.size() + names.exceptionTypes.size();
+									+ names.globals.size() + names.tags.size();
 		NameScope globalNameScope('$', module.featureSpec.quotedNamesInTextFormat, numGlobalNames);
 		for(auto& name : names.types) { globalNameScope.map(name); }
 		for(auto& name : names.tables) { globalNameScope.map(name); }
@@ -347,7 +338,7 @@ struct ModulePrintContext
 		for(auto& name : names.globals) { globalNameScope.map(name); }
 		for(auto& name : names.elemSegments) { globalNameScope.map(name); }
 		for(auto& name : names.dataSegments) { globalNameScope.map(name); }
-		for(auto& name : names.exceptionTypes) { globalNameScope.map(name); }
+		for(auto& name : names.tags) { globalNameScope.map(name); }
 		for(auto& function : names.functions)
 		{
 			globalNameScope.map(function.name);
@@ -564,7 +555,7 @@ struct FunctionPrintContext
 
 	void throw_(ExceptionTypeImm imm)
 	{
-		string += "\nthrow " + moduleContext.names.exceptionTypes[imm.exceptionTypeIndex];
+		string += "\nthrow " + moduleContext.names.tags[imm.exceptionTypeIndex];
 	}
 
 	void rethrow(RethrowImm imm)
@@ -573,6 +564,14 @@ struct FunctionPrintContext
 					== ControlContext::Type::catch_);
 
 		string += "\nrethrow " + getBranchTargetId(imm.catchDepth);
+	}
+
+	void delegate(DelegateImm imm)
+	{
+		string += DEDENT_STRING;
+		string += "\ndelegate " + getDelegateTargetId(imm.delegateDepth) + " ;; end ";
+		string += controlStack.back().labelId;
+		controlStack.pop_back();
 	}
 
 	void ref_null(ReferenceTypeImm imm)
@@ -776,7 +775,7 @@ struct FunctionPrintContext
 		string += DEDENT_STRING;
 		controlStack.back().type = ControlContext::Type::catch_;
 		string += "\ncatch ";
-		string += moduleContext.names.exceptionTypes[imm.exceptionTypeIndex];
+		string += moduleContext.names.tags[imm.exceptionTypeIndex];
 		string += INDENT_STRING;
 	}
 	void catch_all(NoImm)
@@ -823,6 +822,13 @@ private:
 																	 : controlContext.labelId;
 	}
 
+	std::string getDelegateTargetId(Uptr depth)
+	{
+		const ControlContext& controlContext = controlStack[controlStack.size() - depth - 2];
+		return controlContext.type == ControlContext::Type::function ? std::to_string(depth)
+																	 : controlContext.labelId;
+	}
+
 	std::string printControlLabel(const char* labelIdBase)
 	{
 		std::string labelId = labelIndex < labelNames.size() ? labelNames[labelIndex] : labelIdBase;
@@ -850,6 +856,14 @@ template<>
 void printImportType<IndexedFunctionType>(std::string& string,
 										  const Module& module,
 										  IndexedFunctionType type)
+{
+	print(string, module.types[type.index]);
+}
+
+template<>
+void printImportType<IndexedTagType>(std::string& string,
+							  const Module& module,
+                                     IndexedTagType type)
 {
 	print(string, module.types[type.index]);
 }
@@ -933,13 +947,13 @@ void ModulePrintContext::printModule()
 						names.globals[import.index].c_str(),
 						"global");
 			break;
-		case ExternKind::exceptionType:
+		case ExternKind::tag:
 			printImport(string,
 						module,
-						module.exceptionTypes.imports[import.index],
+						module.tags.imports[import.index],
 						import.index,
-						names.exceptionTypes[import.index].c_str(),
-						"exception_type");
+						names.tags[import.index].c_str(),
+						"tag");
 			break;
 
 		case ExternKind::invalid:
@@ -954,6 +968,19 @@ void ModulePrintContext::printModule()
 	// module.
 	printCustomSectionsAfterKnownSection(OrderedSectionID::function);
 
+	// Print the module table definitions.
+	for(Uptr defIndex = 0; defIndex < module.tables.defs.size(); ++defIndex)
+	{
+		const TableDef& tableDef = module.tables.defs[defIndex];
+		string += '\n';
+		ScopedTagPrinter memoryTag(string, "table");
+		string += ' ';
+		string += names.tables[module.tables.imports.size() + defIndex];
+		string += ' ';
+		print(string, tableDef.type);
+	}
+	printCustomSectionsAfterKnownSection(OrderedSectionID::table);
+
 	// Print the module memory definitions.
 	for(Uptr defIndex = 0; defIndex < module.memories.defs.size(); ++defIndex)
 	{
@@ -967,18 +994,26 @@ void ModulePrintContext::printModule()
 	}
 	printCustomSectionsAfterKnownSection(OrderedSectionID::memory);
 
-	// Print the module table definitions.
-	for(Uptr defIndex = 0; defIndex < module.tables.defs.size(); ++defIndex)
+	// Print the module exception type definitions.
+	for(Uptr defIndex = 0; defIndex < module.tags.defs.size(); ++defIndex)
 	{
-		const TableDef& tableDef = module.tables.defs[defIndex];
+		const auto& tagDef = module.tags.defs[defIndex];
 		string += '\n';
-		ScopedTagPrinter memoryTag(string, "table");
+		ScopedTagPrinter tagTag(string, "tag");
 		string += ' ';
-		string += names.tables[module.tables.imports.size() + defIndex];
-		string += ' ';
-		print(string, tableDef.type);
+		string += names.tags[module.tags.imports.size() + defIndex];
+		const auto& type = module.types[tagDef.type.index];
+		// Print tag parameters.
+		for(Uptr parameterIndex = 0; parameterIndex < type.params().size();
+			++parameterIndex)
+		{
+			string += ' ';
+			ScopedTagPrinter paramTag(string, "param");
+			string += ' ';
+			print(string, type.params()[parameterIndex]);
+		}
 	}
-	printCustomSectionsAfterKnownSection(OrderedSectionID::table);
+	printCustomSectionsAfterKnownSection(OrderedSectionID::tag);
 
 	// Print the module global definitions.
 	for(Uptr defIndex = 0; defIndex < module.globals.defs.size(); ++defIndex)
@@ -995,18 +1030,6 @@ void ModulePrintContext::printModule()
 	}
 	printCustomSectionsAfterKnownSection(OrderedSectionID::global);
 
-	// Print the module exception type definitions.
-	for(Uptr defIndex = 0; defIndex < module.exceptionTypes.defs.size(); ++defIndex)
-	{
-		const ExceptionTypeDef& exceptionTypeDef = module.exceptionTypes.defs[defIndex];
-		string += '\n';
-		ScopedTagPrinter exceptionTypeTag(string, "exception_type");
-		string += ' ';
-		string += names.exceptionTypes[module.exceptionTypes.imports.size() + defIndex];
-		print(string, exceptionTypeDef.type);
-	}
-	printCustomSectionsAfterKnownSection(OrderedSectionID::exceptionType);
-
 	// Print the module exports.
 	for(auto export_ : module.exports)
 	{
@@ -1021,9 +1044,7 @@ void ModulePrintContext::printModule()
 		case ExternKind::table: string += "table " + names.tables[export_.index]; break;
 		case ExternKind::memory: string += "memory " + names.memories[export_.index]; break;
 		case ExternKind::global: string += "global " + names.globals[export_.index]; break;
-		case ExternKind::exceptionType:
-			string += "exception_type " + names.exceptionTypes[export_.index];
-			break;
+		case ExternKind::tag: string += "tag " + names.tags[export_.index]; break;
 
 		case ExternKind::invalid:
 		default: WAVM_UNREACHABLE();
@@ -1078,7 +1099,7 @@ void ModulePrintContext::printModule()
 				case ExternKind::table: string += " table"; break;
 				case ExternKind::memory: string += " memory"; break;
 				case ExternKind::global: string += " global"; break;
-				case ExternKind::exceptionType: string += " exception_type"; break;
+				case ExternKind::tag: string += " tag"; break;
 				case ExternKind::invalid:
 				default: WAVM_UNREACHABLE();
 				};
@@ -1096,7 +1117,7 @@ void ModulePrintContext::printModule()
 				case ExternKind::table: string += names.tables[externIndex]; break;
 				case ExternKind::memory: string += names.memories[externIndex]; break;
 				case ExternKind::global: string += names.globals[externIndex]; break;
-				case ExternKind::exceptionType: string += names.exceptionTypes[externIndex]; break;
+				case ExternKind::tag: string += names.tags[externIndex]; break;
 				case ExternKind::invalid:
 				default: WAVM_UNREACHABLE();
 				};

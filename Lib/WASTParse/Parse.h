@@ -142,6 +142,7 @@ namespace WAVM { namespace WAST {
 		NameToIndexMap functionNameToIndexMap;
 		NameToIndexMap tableNameToIndexMap;
 		NameToIndexMap memoryNameToIndexMap;
+		NameToIndexMap tagNameToIndexMap;
 		NameToIndexMap globalNameToIndexMap;
 		NameToIndexMap exceptionTypeNameToIndexMap;
 		NameToIndexMap elemNameToIndexMap;
@@ -214,10 +215,16 @@ namespace WAVM { namespace WAST {
 		CursorState* cursor,
 		NameToIndexMap& outLocalNameToIndexMap,
 		std::vector<std::string>& outLocalDisassemblyNames);
+
+	// Same as parseFunctionType, but allow only parameters.
+	IR::FunctionType parseTagType(CursorState* cursor,
+								  NameToIndexMap& outLocalNameToIndexMap,
+								  std::vector<std::string>& outLocalDisassemblyNames);
+
 	IR::IndexedFunctionType resolveFunctionType(ModuleState* moduleState,
 												const UnresolvedFunctionType& unresolvedType);
-	IR::IndexedFunctionType getUniqueFunctionTypeIndex(ModuleState* moduleState,
-													   IR::FunctionType functionType);
+	IR::IndexedTagType resolveTagType(ModuleState* moduleState, const UnresolvedFunctionType& unresolvedType);
+	Uptr getUniqueFunctionTypeIndex(ModuleState* moduleState, IR::FunctionType functionType);
 
 	// Literal parsing.
 	bool tryParseHexit(const char*& nextChar, U8& outValue);

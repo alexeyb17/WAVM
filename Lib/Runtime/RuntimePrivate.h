@@ -140,12 +140,13 @@ namespace WAVM { namespace Runtime {
 	{
 		Uptr id = UINTPTR_MAX;
 
-		IR::ExceptionType sig;
+		// Exception parameters type signature.
+		IR::TypeTuple sig;
 
 		ExceptionType(Compartment* inCompartment,
-					  IR::ExceptionType inSig,
+					  IR::TypeTuple inSig,
 					  std::string&& inDebugName)
-		: GCObject(ObjectKind::exceptionType, inCompartment, std::move(inDebugName)), sig(inSig)
+		: GCObject(ObjectKind::tag, inCompartment, std::move(inDebugName)), sig(inSig)
 		{
 		}
 

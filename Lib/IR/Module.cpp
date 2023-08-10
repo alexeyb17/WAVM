@@ -1,5 +1,4 @@
 #include "WAVM/IR/Module.h"
-#include "WAVM/IR/IR.h"
 
 using namespace WAVM;
 using namespace WAVM::IR;
@@ -14,8 +13,8 @@ const char* IR::asString(OrderedSectionID id)
 	case OrderedSectionID::function: return "func";
 	case OrderedSectionID::table: return "table";
 	case OrderedSectionID::memory: return "memory";
+	case OrderedSectionID::tag: return "tag";
 	case OrderedSectionID::global: return "global";
-	case OrderedSectionID::exceptionType: return "exception_type";
 	case OrderedSectionID::export_: return "export";
 	case OrderedSectionID::start: return "start";
 	case OrderedSectionID::elem: return "elem";
@@ -74,11 +73,11 @@ OrderedSectionID IR::getMaxPresentSection(const Module& module, OrderedSectionID
 	case OrderedSectionID::export_:
 		if(hasExportSection(module)) { return OrderedSectionID::export_; }
 		// fall through
-	case OrderedSectionID::exceptionType:
-		if(hasExceptionTypeSection(module)) { return OrderedSectionID::exceptionType; }
-		// fall through
 	case OrderedSectionID::global:
 		if(hasGlobalSection(module)) { return OrderedSectionID::global; }
+		// fall through
+	case OrderedSectionID::tag:
+		if(hasTagSection(module)) { return OrderedSectionID::tag; }
 		// fall through
 	case OrderedSectionID::memory:
 		if(hasMemorySection(module)) { return OrderedSectionID::memory; }

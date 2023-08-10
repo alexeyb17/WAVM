@@ -133,9 +133,9 @@ bool Runtime::generateStub(const std::string& moduleName,
 			compartment, asGlobalType(type), std::string(exportName), resourceQuota));
 		return outObject != nullptr;
 	}
-	case IR::ExternKind::exceptionType: {
+	case IR::ExternKind::tag: {
 		outObject = asObject(
-			Runtime::createExceptionType(compartment, asExceptionType(type), "importStub"));
+			Runtime::createExceptionType(compartment, asTagType(type).params(), "importStub"));
 		return outObject != nullptr;
 	}
 
@@ -173,7 +173,7 @@ LinkResult Runtime::linkModule(const IR::Module& module, Resolver& resolver)
 	WAVM_ASSERT(module.imports.size()
 				== module.functions.imports.size() + module.tables.imports.size()
 					   + module.memories.imports.size() + module.globals.imports.size()
-					   + module.exceptionTypes.imports.size());
+					   + module.tags.imports.size());
 	for(const auto& kindIndex : module.imports)
 	{
 		switch(kindIndex.kind)
@@ -202,9 +202,10 @@ LinkResult Runtime::linkModule(const IR::Module& module, Resolver& resolver)
 			linkImport(module, globalImport, globalImport.type, resolver, linkResult);
 			break;
 		}
-		case ExternKind::exceptionType: {
-			const auto& exceptionTypeImport = module.exceptionTypes.imports[kindIndex.index];
-			linkImport(module, exceptionTypeImport, exceptionTypeImport.type, resolver, linkResult);
+		case ExternKind::tag: {
+			const auto& tagImport = module.tags.imports[kindIndex.index];
+			const auto& params = module.types[tagImport.type.index].params();
+			linkImport(module, tagImport, IR::TagType(params), resolver, linkResult);
 			break;
 		}
 
