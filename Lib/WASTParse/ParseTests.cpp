@@ -619,6 +619,15 @@ static std::unique_ptr<Command> parseCommand(CursorState* cursor,
 											std::move(expectedArguments)));
 				break;
 			}
+			case t_assert_exception: {
+				++cursor->nextToken;
+
+				std::unique_ptr<Action> action = parseAction(cursor, featureSpec);
+
+				result = std::unique_ptr<Command>(
+					new AssertExceptionCommand(std::move(locus), std::move(action)));
+				break;
+			}
 			case t_assert_unlinkable: {
 				++cursor->nextToken;
 

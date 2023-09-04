@@ -570,7 +570,7 @@
 		</dict>
 		<dict>
 			<key>match</key>
-			<string>(?&lt;=[\s=();])(assert_return|assert_return_arithmetic|assert_return_canonical_nan|assert_return_func|assert_trap|assert_throws|assert_invalid|assert_malformed|assert_unlinkable|invoke|get)(?=[\s=();])</string>
+                        <string>(?&lt;=[\s=();])(assert_return|assert_return_arithmetic|assert_return_canonical_nan|assert_return_func|assert_trap|assert_throws|assert_exception|assert_invalid|assert_malformed|assert_unlinkable|invoke|get)(?=[\s=();])</string>
 			<key>name</key>
 			<string>entity.name.function.wasm</string>
 		</dict>

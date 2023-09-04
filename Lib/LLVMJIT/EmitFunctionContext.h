@@ -4,6 +4,7 @@
 #include "EmitModuleContext.h"
 #include "LLVMJITPrivate.h"
 #include "WAVM/IR/Module.h"
+#include "WAVM/IR/Operators.h"
 #include "WAVM/IR/Types.h"
 #include "WAVM/Logging/Logging.h"
 
@@ -19,6 +20,7 @@ namespace WAVM { namespace LLVMJIT {
 		struct EmitModuleContext& moduleContext;
 		const IR::Module& irModule;
 		const IR::FunctionDef& functionDef;
+		IR::OperatorDecoderStream decoder;
 		IR::FunctionType functionType;
 		llvm::Function* function;
 
@@ -26,6 +28,23 @@ namespace WAVM { namespace LLVMJIT {
 		std::vector<llvm::Type*> localTypes;
 
 		llvm::DISubprogram* diFunction;
+
+		struct CatchContext
+		{
+			// Unwind target.
+			llvm::BasicBlock* unwindToBlock = nullptr;
+
+			// Only used for Windows SEH.
+			llvm::CatchSwitchInst* catchSwitchInst = nullptr;
+
+			// Only used for non-Windows exceptions.
+			llvm::LandingPadInst* landingPadInst = nullptr;
+
+			// Used for all platforms.
+			llvm::Value* exceptionPointer = nullptr;
+			llvm::BasicBlock* nextHandlerBlock = nullptr;
+			llvm::Value* exceptionTypeId = nullptr;
+		};
 
 		// Information about an in-scope control structure.
 		struct ControlContext
@@ -38,7 +57,8 @@ namespace WAVM { namespace LLVMJIT {
 				ifElse,
 				loop,
 				try_,
-				catch_
+				catch_,
+				catch_all
 			};
 
 			Type type;
@@ -50,6 +70,7 @@ namespace WAVM { namespace LLVMJIT {
 			Uptr outerStackSize;
 			Uptr outerBranchTargetStackSize;
 			bool isReachable;
+			CatchContext catchContext;
 		};
 
 		struct BranchTarget
@@ -72,6 +93,7 @@ namespace WAVM { namespace LLVMJIT {
 		, moduleContext(inModuleContext)
 		, irModule(inIRModule)
 		, functionDef(inFunctionDef)
+		, decoder(functionDef.code)
 		, functionType(inIRModule.types[inFunctionDef.type.index])
 		, function(inLLVMFunction)
 		{
@@ -269,25 +291,36 @@ namespace WAVM { namespace LLVMJIT {
 
 		void trapIfMisalignedAtomic(llvm::Value* address, U32 naturalAlignmentLog2);
 
-		struct CatchContext
-		{
-			// Only used for Windows SEH.
-			llvm::CatchSwitchInst* catchSwitchInst;
-
-			// Only used for non-Windows exceptions.
-			llvm::LandingPadInst* landingPadInst;
-
-			// Used for all platforms.
-			llvm::Value* exceptionPointer;
-			llvm::BasicBlock* nextHandlerBlock;
-			llvm::Value* exceptionTypeId;
-		};
-
-		std::vector<CatchContext> catchStack;
-
-		void endTryWithoutCatch();
 		void endTryCatch();
 		void exitCatch();
+
+		// Get target block for stack unwind.
+		llvm::BasicBlock* getInnermostUnwindToBlock();
+
+		// Ahead lookup of how current `try` is closed.
+		// Called on immediately before creating try block.
+		//
+		// Returns:
+		// -1 if try is closed by `catch`/`catch_all`;
+		// delegateImm if closed by `delegate`;
+		// 0 if closed by `end`.
+		int lookupClosingDelegate();
+
+		// Overload that automatically provides unwind target.
+		ValueVector emitRuntimeIntrinsic(const char* intrinsicName,
+										 IR::FunctionType intrinsicType,
+										 const std::initializer_list<llvm::Value*>& args)
+		{
+			return EmitContext::emitRuntimeIntrinsic(intrinsicName, intrinsicType, args, getInnermostUnwindToBlock());
+		}
+
+		// Overload that automatically provides unwind target.
+		ValueVector emitCallOrInvoke(llvm::Value* callee,
+									 llvm::ArrayRef<llvm::Value*> args,
+									 IR::FunctionType calleeType)
+		{
+			return EmitContext::emitCallOrInvoke(callee, args, calleeType, getInnermostUnwindToBlock());
+		}
 
 #define VISIT_OPCODE(encoding, name, nameString, Imm, ...) void name(IR::Imm imm);
 		WAVM_ENUM_OPERATORS(VISIT_OPCODE)

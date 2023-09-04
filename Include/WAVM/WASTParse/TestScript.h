@@ -25,6 +25,7 @@ namespace WAVM { namespace WAST {
 			assert_return_func,
 			assert_trap,
 			assert_throws,
+			assert_exception, // same as assert_throws but without parameters
 			assert_invalid,
 			assert_malformed,
 			assert_unlinkable,
@@ -352,6 +353,16 @@ namespace WAVM { namespace WAST {
 		, exceptionTypeInternalModuleName(inExceptionTypeInternalModuleName)
 		, exceptionTypeExportName(inExceptionTypeExportName)
 		, expectedArguments(inExpectedArguments)
+		{
+		}
+	};
+
+	struct AssertExceptionCommand : Command
+	{
+		std::unique_ptr<Action> action;
+		AssertExceptionCommand(TextFileLocus&& inLocus, std::unique_ptr<Action>&& inAction)
+		: Command(Command::assert_exception, std::move(inLocus))
+		, action(std::move(inAction))
 		{
 		}
 	};

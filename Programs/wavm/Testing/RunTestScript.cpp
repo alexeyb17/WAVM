@@ -1032,6 +1032,25 @@ static void processAssertThrows(TestScriptState& state, const AssertThrowsComman
 		});
 }
 
+static void processAssertException(TestScriptState& state, const AssertExceptionCommand* assertCommand)
+{
+
+	Runtime::catchRuntimeExceptions(
+		[&] {
+			std::vector<Value> actionResults;
+			if(processAction(state, assertCommand->action.get(), &actionResults))
+			{
+				testErrorf(state,
+						   assertCommand->locus,
+						   "expected trap but got %s",
+						   asString(actionResults).c_str());
+			}
+		},
+		[&](Runtime::Exception* exception) {
+			destroyException(exception);
+		});
+}
+
 static void processAssertInvalid(TestScriptState& state,
 								 const AssertInvalidOrMalformedCommand* assertCommand)
 {
@@ -1360,6 +1379,7 @@ static void processCommand(TestScriptState& state, const Command* command)
 		break;
 	case Command::assert_trap: processAssertTrap(state, (AssertTrapCommand*)command); break;
 	case Command::assert_throws: processAssertThrows(state, (AssertThrowsCommand*)command); break;
+	case Command::assert_exception: processAssertException(state, (AssertExceptionCommand*)command); break;
 	case Command::assert_invalid:
 		processAssertInvalid(state, (AssertInvalidOrMalformedCommand*)command);
 		break;

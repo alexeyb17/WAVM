@@ -97,6 +97,7 @@ void EmitFunctionContext::traceOperator(const std::string& operatorDescription)
 		case ControlContext::Type::loop: controlStackString += "L"; break;
 		case ControlContext::Type::try_: controlStackString += "T"; break;
 		case ControlContext::Type::catch_: controlStackString += "C"; break;
+		case ControlContext::Type::catch_all: controlStackString += "A"; break;
 		default: WAVM_UNREACHABLE();
 		};
 		if(!controlStack[stackIndex].isReachable) { controlStackString += ")"; }
@@ -378,7 +379,6 @@ void EmitFunctionContext::emit()
 	}
 
 	// Decode the WebAssembly opcodes and emit LLVM IR for them.
-	OperatorDecoderStream decoder(functionDef.code);
 	UnreachableOpVisitor unreachableOpVisitor(*this);
 	OperatorPrinter operatorPrinter(irModule, functionDef);
 	Uptr opIndex = 0;

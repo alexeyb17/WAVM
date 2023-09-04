@@ -1,3 +1,4 @@
+add_subdirectory(exception-handling)
 add_subdirectory(memory64)
 add_subdirectory(multi-memory)
 add_subdirectory(spec)

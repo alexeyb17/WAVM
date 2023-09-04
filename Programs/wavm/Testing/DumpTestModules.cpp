@@ -134,6 +134,7 @@ static void dumpCommandModules(const char* filename,
 	case Command::assert_return_func:
 	case Command::assert_trap:
 	case Command::assert_throws:
+	case Command::assert_exception:
 	case Command::benchmark:
 	case Command::wait:
 	default: break;

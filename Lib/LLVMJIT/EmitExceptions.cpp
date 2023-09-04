@@ -63,18 +63,13 @@ static llvm::Function* getCXAEndCatchFunction(EmitModuleContext& moduleContext)
 	return moduleContext.cxaEndCatchFunction;
 }
 
-void EmitFunctionContext::endTryWithoutCatch()
-{
-	WAVM_ASSERT(tryStack.size());
-	tryStack.pop_back();
-
-	endTryCatch();
-}
-
 void EmitFunctionContext::endTryCatch()
 {
-	WAVM_ASSERT(catchStack.size());
-	CatchContext& catchContext = catchStack.back();
+	ControlContext& currentContext = controlStack.back();
+	WAVM_ASSERT(currentContext.type == ControlContext::Type::catch_
+				|| currentContext.type == ControlContext::Type::catch_all);
+
+	CatchContext& catchContext = currentContext.catchContext;
 
 	exitCatch();
 
@@ -90,116 +85,144 @@ void EmitFunctionContext::endTryCatch()
 		{irBuilder.CreatePtrToInt(catchContext.exceptionPointer, moduleContext.iptrType)});
 	irBuilder.CreateUnreachable();
 	irBuilder.SetInsertPoint(savedInsertionPoint);
-
-	catchStack.pop_back();
 }
 
 void EmitFunctionContext::exitCatch()
 {
 	ControlContext& currentContext = controlStack.back();
-	WAVM_ASSERT(currentContext.type == ControlContext::Type::catch_);
+	WAVM_ASSERT(currentContext.type == ControlContext::Type::catch_
+				|| currentContext.type == ControlContext::Type::catch_all);
 
-	WAVM_ASSERT(catchStack.size());
-	CatchContext& catchContext = catchStack.back();
+//	CatchContext& catchContext = currentContext.catchContext;
 
-	if(currentContext.isReachable)
-	{
-		// Destroy the exception caught by the previous catch clause.
-		emitRuntimeIntrinsic(
-			"destroyException",
-			FunctionType(
-				TypeTuple{}, TypeTuple{moduleContext.iptrValueType}, CallingConvention::intrinsic),
-			{irBuilder.CreatePtrToInt(catchContext.exceptionPointer, moduleContext.iptrType)});
-	}
+//	if(currentContext.isReachable)
+//	{
+//		// Destroy the exception caught by the previous catch clause.
+//		emitRuntimeIntrinsic(
+//			"destroyException",
+//			FunctionType(
+//				TypeTuple{}, TypeTuple{moduleContext.iptrValueType}, CallingConvention::intrinsic),
+//			{irBuilder.CreatePtrToInt(catchContext.exceptionPointer, moduleContext.iptrType)});
+//	}
 }
 
-llvm::BasicBlock* EmitContext::getInnermostUnwindToBlock()
+llvm::BasicBlock* EmitFunctionContext::getInnermostUnwindToBlock()
 {
-	if(tryStack.size()) { return tryStack.back().unwindToBlock; }
-	else
+	for (auto it = controlStack.rbegin(); it != controlStack.rend(); ++it)
 	{
-		return nullptr;
+		if (it->type == ControlContext::Type::try_)
+		{
+			return it->catchContext.unwindToBlock;
+		}
 	}
+	return nullptr;
 }
 
 void EmitFunctionContext::try_(ControlStructureImm imm)
 {
 	auto originalInsertBlock = irBuilder.GetInsertBlock();
 
-	if(moduleContext.useWindowsSEH)
+	CatchContext catchContext;
+	int delegateImm = lookupClosingDelegate();
+	if (delegateImm >= 0)
 	{
-		// Insert an alloca for the exception pointer at the beginning of the function.
-		irBuilder.SetInsertPoint(&function->getEntryBlock(),
-								 function->getEntryBlock().getFirstInsertionPt());
-		llvm::Value* exceptionPointerAlloca
-			= irBuilder.CreateAlloca(llvmContext.i8PtrType, nullptr, "exceptionPointer");
-
-		// Create a BasicBlock with a CatchSwitch instruction to use as the unwind target.
-		auto catchSwitchBlock = llvm::BasicBlock::Create(llvmContext, "catchSwitch", function);
-		irBuilder.SetInsertPoint(catchSwitchBlock);
-		auto catchSwitchInst
-			= irBuilder.CreateCatchSwitch(llvm::ConstantTokenNone::get(llvmContext), nullptr, 1);
-
-		// Create a block+catchpad that the catchswitch will transfer control if the exception type
-		// info matches a WAVM runtime exception.
-		auto catchPadBlock = llvm::BasicBlock::Create(llvmContext, "catchPad", function);
-		catchSwitchInst->addHandler(catchPadBlock);
-		irBuilder.SetInsertPoint(catchPadBlock);
-		auto catchPadInst = irBuilder.CreateCatchPad(catchSwitchInst,
-													 {moduleContext.runtimeExceptionTypeInfo,
-													  emitLiteral(llvmContext, I32(0)),
-													  exceptionPointerAlloca});
-
-		// Create a catchret that immediately returns from the catch "funclet" to a new non-funclet
-		// basic block.
-		auto catchBlock = llvm::BasicBlock::Create(llvmContext, "catch", function);
-		irBuilder.CreateCatchRet(catchPadInst, catchBlock);
-		irBuilder.SetInsertPoint(catchBlock);
-
-		// Load the exception pointer from the alloca that the catchpad wrote it to.
-		auto exceptionPointer
-			= loadFromUntypedPointer(exceptionPointerAlloca, llvmContext.i8PtrType);
-
-		// Load the exception type ID.
-		auto exceptionTypeId = loadFromUntypedPointer(
-			createInBoundsGEP(
-				llvmContext.i8Type,
-				exceptionPointer,
-				{emitLiteralIptr(offsetof(Exception, typeId), moduleContext.iptrType)}),
-			moduleContext.iptrType);
-
-		tryStack.push_back(TryContext{catchSwitchBlock});
-		catchStack.push_back(
-			CatchContext{catchSwitchInst, nullptr, exceptionPointer, catchBlock, exceptionTypeId});
+		auto offset = static_cast<Uptr>(delegateImm);
+		WAVM_ASSERT(offset < controlStack.size());
+		for (; offset < controlStack.size(); ++offset)
+		{
+			const auto& controlContext = controlStack[controlStack.size() - 1 - offset];
+			if (controlContext.type == ControlContext::Type::try_)
+			{
+				// found target `try` block, use its CatchContext
+				catchContext = controlContext.catchContext;
+				break;
+			}
+		}
+		// if `try` isn't found CatchContext remains zero-initialized which
+		// means rethrowing to caller function
 	}
 	else
 	{
-		// Create a BasicBlock with a LandingPad instruction to use as the unwind target.
-		auto landingPadBlock = llvm::BasicBlock::Create(llvmContext, "landingPad", function);
-		irBuilder.SetInsertPoint(landingPadBlock);
-		auto landingPadInst = irBuilder.CreateLandingPad(
-			llvm::StructType::get(llvmContext, {llvmContext.i8PtrType, llvmContext.i32Type}), 1);
-		landingPadInst->addClause(moduleContext.runtimeExceptionTypeInfo);
+		// try/catch - generate new CatchContext
+		if (moduleContext.useWindowsSEH)
+		{
+			// Insert an alloca for the exception pointer at the beginning of the function.
+			irBuilder.SetInsertPoint(&function->getEntryBlock(),
+									 function->getEntryBlock().getFirstInsertionPt());
+			llvm::Value* exceptionPointerAlloca
+				= irBuilder.CreateAlloca(llvmContext.i8PtrType, nullptr, "exceptionPointer");
 
-		// Call __cxa_begin_catch to get the exception pointer.
-		auto exceptionPointer
-			= irBuilder.CreateCall(getCXABeginCatchFunction(moduleContext),
-								   {irBuilder.CreateExtractValue(landingPadInst, {0})});
+			// Create a BasicBlock with a CatchSwitch instruction to use as the unwind target.
+			auto catchSwitchBlock = llvm::BasicBlock::Create(llvmContext, "catchSwitch", function);
+			irBuilder.SetInsertPoint(catchSwitchBlock);
+			auto catchSwitchInst
+				= irBuilder.CreateCatchSwitch(llvm::ConstantTokenNone::get(llvmContext), nullptr, 1);
 
-		// Call __cxa_end_catch immediately to free memory used to throw the exception.
-		irBuilder.CreateCall(getCXAEndCatchFunction(moduleContext));
+			// Create a block+catchpad that the catchswitch will transfer control if the exception type
+			// info matches a WAVM runtime exception.
+			auto catchPadBlock = llvm::BasicBlock::Create(llvmContext, "catchPad", function);
+			catchSwitchInst->addHandler(catchPadBlock);
+			irBuilder.SetInsertPoint(catchPadBlock);
+			auto catchPadInst = irBuilder.CreateCatchPad(catchSwitchInst,
+														 {moduleContext.runtimeExceptionTypeInfo,
+														  emitLiteral(llvmContext, I32(0)),
+														  exceptionPointerAlloca});
 
-		// Load the exception type ID.
-		auto exceptionTypeId = loadFromUntypedPointer(
-			createInBoundsGEP(
-				llvmContext.i8Type,
-				exceptionPointer,
-				{emitLiteralIptr(offsetof(Exception, typeId), moduleContext.iptrType)}),
-			moduleContext.iptrType);
+			// Create a catchret that immediately returns from the catch "funclet" to a new non-funclet
+			// basic block.
+			auto catchBlock = llvm::BasicBlock::Create(llvmContext, "catch", function);
+			irBuilder.CreateCatchRet(catchPadInst, catchBlock);
+			irBuilder.SetInsertPoint(catchBlock);
 
-		tryStack.push_back(TryContext{landingPadBlock});
-		catchStack.push_back(CatchContext{
-			nullptr, landingPadInst, exceptionPointer, landingPadBlock, exceptionTypeId});
+			// Load the exception pointer from the alloca that the catchpad wrote it to.
+			auto exceptionPointer
+				= loadFromUntypedPointer(exceptionPointerAlloca, llvmContext.i8PtrType);
+
+			// Load the exception type ID.
+			auto exceptionTypeId = loadFromUntypedPointer(
+				createInBoundsGEP(
+					llvmContext.i8Type,
+					exceptionPointer,
+					{emitLiteralIptr(offsetof(Exception, typeId), moduleContext.iptrType)}),
+				moduleContext.iptrType);
+
+			catchContext.unwindToBlock = catchSwitchBlock;
+			catchContext.catchSwitchInst = catchSwitchInst;
+			catchContext.exceptionPointer = exceptionPointer;
+			catchContext.nextHandlerBlock = catchBlock;
+			catchContext.exceptionTypeId = exceptionTypeId;
+		}
+		else
+		{
+			// Create a BasicBlock with a LandingPad instruction to use as the unwind target.
+			auto landingPadBlock = llvm::BasicBlock::Create(llvmContext, "landingPad", function);
+			irBuilder.SetInsertPoint(landingPadBlock);
+			auto landingPadInst = irBuilder.CreateLandingPad(
+				llvm::StructType::get(llvmContext, {llvmContext.i8PtrType, llvmContext.i32Type}), 1);
+			landingPadInst->addClause(moduleContext.runtimeExceptionTypeInfo);
+
+			// Call __cxa_begin_catch to get the exception pointer.
+			auto exceptionPointer
+				= irBuilder.CreateCall(getCXABeginCatchFunction(moduleContext),
+									   {irBuilder.CreateExtractValue(landingPadInst, {0})});
+
+			// Call __cxa_end_catch immediately to free memory used to throw the exception.
+			irBuilder.CreateCall(getCXAEndCatchFunction(moduleContext));
+
+			// Load the exception type ID.
+			auto exceptionTypeId = loadFromUntypedPointer(
+				createInBoundsGEP(
+					llvmContext.i8Type,
+					exceptionPointer,
+					{emitLiteralIptr(offsetof(Exception, typeId), moduleContext.iptrType)}),
+				moduleContext.iptrType);
+
+			catchContext.unwindToBlock = landingPadBlock;
+			catchContext.landingPadInst = landingPadInst;
+			catchContext.exceptionPointer = exceptionPointer;
+			catchContext.nextHandlerBlock = landingPadBlock;
+			catchContext.exceptionTypeId = exceptionTypeId;
+		}
 	}
 
 	irBuilder.SetInsertPoint(originalInsertBlock);
@@ -215,6 +238,7 @@ void EmitFunctionContext::try_(ControlStructureImm imm)
 
 	// Push a control context that ends at the end block/phi.
 	pushControlStack(ControlContext::Type::try_, blockType.results(), endBlock, endPHIs);
+	controlStack.back().catchContext = catchContext;
 
 	// Push a branch target for the end block/phi.
 	pushBranchTarget(blockType.results(), endBlock, endPHIs);
@@ -226,22 +250,22 @@ void EmitFunctionContext::try_(ControlStructureImm imm)
 void EmitFunctionContext::catch_(ExceptionTypeImm imm)
 {
 	WAVM_ASSERT(controlStack.size());
-	WAVM_ASSERT(catchStack.size());
 	ControlContext& controlContext = controlStack.back();
-	CatchContext& catchContext = catchStack.back();
+	CatchContext& catchContext = controlContext.catchContext;
 	WAVM_ASSERT(controlContext.type == ControlContext::Type::try_
 				|| controlContext.type == ControlContext::Type::catch_);
 	if(controlContext.type == ControlContext::Type::try_)
 	{
-		WAVM_ASSERT(tryStack.size());
-		tryStack.pop_back();
+		branchToEndOfControlContext();
+		controlContext.type = ControlContext::Type::catch_;
+		controlContext.isReachable = true;
 	}
 	else
 	{
 		exitCatch();
+		branchToEndOfControlContext();
+		controlContext.isReachable = true;
 	}
-
-	branchToEndOfControlContext();
 
 	// Look up the exception type instance to be caught
 	WAVM_ASSERT(imm.exceptionTypeIndex < moduleContext.exceptionTypeIds.size());
@@ -273,30 +297,28 @@ void EmitFunctionContext::catch_(ExceptionTypeImm imm)
 			sizeof(Exception::arguments[0]));
 		push(argument);
 	}
-
-	// Change the top of the control stack to a catch clause.
-	controlContext.type = ControlContext::Type::catch_;
-	controlContext.isReachable = true;
 }
+
 void EmitFunctionContext::catch_all(NoImm)
 {
 	WAVM_ASSERT(controlStack.size());
-	WAVM_ASSERT(catchStack.size());
 	ControlContext& controlContext = controlStack.back();
-	CatchContext& catchContext = catchStack.back();
+	CatchContext& catchContext = controlContext.catchContext;
 	WAVM_ASSERT(controlContext.type == ControlContext::Type::try_
 				|| controlContext.type == ControlContext::Type::catch_);
 	if(controlContext.type == ControlContext::Type::try_)
 	{
-		WAVM_ASSERT(tryStack.size());
-		tryStack.pop_back();
+		branchToEndOfControlContext();
+		controlContext.type = ControlContext::Type::catch_all;
+		controlContext.isReachable = true;
 	}
 	else
 	{
 		exitCatch();
+		branchToEndOfControlContext();
+		controlContext.type = ControlContext::Type::catch_all;
+		controlContext.isReachable = true;
 	}
-
-	branchToEndOfControlContext();
 
 	irBuilder.SetInsertPoint(catchContext.nextHandlerBlock);
 	auto isUserExceptionType = irBuilder.CreateICmpNE(
@@ -313,10 +335,6 @@ void EmitFunctionContext::catch_all(NoImm)
 	irBuilder.CreateCondBr(isUserExceptionType, catchBlock, unhandledBlock);
 	catchContext.nextHandlerBlock = unhandledBlock;
 	irBuilder.SetInsertPoint(catchBlock);
-
-	// Change the top of the control stack to a catch clause.
-	controlContext.type = ControlContext::Type::catch_;
-	controlContext.isReachable = true;
 }
 
 void EmitFunctionContext::throw_(ExceptionTypeImm imm)
@@ -367,10 +385,14 @@ void EmitFunctionContext::throw_(ExceptionTypeImm imm)
 	irBuilder.CreateUnreachable();
 	enterUnreachable();
 }
+
 void EmitFunctionContext::rethrow(RethrowImm imm)
 {
-	WAVM_ASSERT(imm.catchDepth < catchStack.size());
-	CatchContext& catchContext = catchStack[catchStack.size() - imm.catchDepth - 1];
+	WAVM_ASSERT(imm.catchDepth < controlStack.size());
+	auto& controlContext = controlStack[controlStack.size() - imm.catchDepth - 1];
+	WAVM_ASSERT(controlContext.type == ControlContext::Type::catch_
+				|| controlContext.type == ControlContext::Type::catch_all);
+	CatchContext& catchContext = controlContext.catchContext;
 	emitRuntimeIntrinsic(
 		"throwException",
 		FunctionType(
@@ -380,7 +402,59 @@ void EmitFunctionContext::rethrow(RethrowImm imm)
 	irBuilder.CreateUnreachable();
 	enterUnreachable();
 }
+
 void EmitFunctionContext::delegate(DelegateImm imm)
 {
-	// NIY
+	end(NoImm{});
+}
+
+int EmitFunctionContext::lookupClosingDelegate()
+{
+	struct Visitor
+	{
+		typedef void Result;
+
+#define VISIT_OP(opcode, name, nameString, Imm, ...)                                               \
+		void name(Imm imm) {}
+		WAVM_ENUM_NONCONTROL_OPERATORS(VISIT_OP)
+		VISIT_OP(_, unknown, "unknown", Opcode)
+#undef VISIT_OP
+
+		void block(ControlStructureImm) { ++controlDepth; }
+		void loop(ControlStructureImm) { ++controlDepth; }
+		void if_(ControlStructureImm) { ++controlDepth; }
+
+		void else_(NoImm imm) {}
+		void end(NoImm imm) { --controlDepth; }
+
+		void try_(ControlStructureImm imm) { ++controlDepth; }
+		void catch_(ExceptionTypeImm imm)
+		{
+			if (controlDepth == 1) { delegateDepth = -1; }
+		}
+		void catch_all(NoImm imm)
+		{
+			if (controlDepth == 1) { delegateDepth = -1; }
+		}
+		void delegate(DelegateImm imm)
+		{
+			if (--controlDepth == 0) { delegateDepth = static_cast<int>(imm.delegateDepth); }
+		}
+
+		Uptr controlDepth = 1;
+		int delegateDepth = 0;
+	};
+
+	auto aheadDecoder = decoder;
+	Visitor v;
+	while (aheadDecoder)
+	{
+		aheadDecoder.decodeOp(v);
+		if (v.controlDepth == 0)
+		{
+			return v.delegateDepth;
+		}
+	}
+	// closing instruction is not found, treat as rethrow to upper level
+	return 0;
 }

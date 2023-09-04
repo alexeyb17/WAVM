@@ -34,6 +34,7 @@
 	VISIT_LITERAL_TOKEN(assert_return_func)                                                        \
 	VISIT_LITERAL_TOKEN(assert_trap)                                                               \
 	VISIT_LITERAL_TOKEN(assert_throws)                                                             \
+	VISIT_LITERAL_TOKEN(assert_exception)                                                          \
 	VISIT_LITERAL_TOKEN(assert_invalid)                                                            \
 	VISIT_LITERAL_TOKEN(assert_unlinkable)                                                         \
 	VISIT_LITERAL_TOKEN(assert_malformed)                                                          \

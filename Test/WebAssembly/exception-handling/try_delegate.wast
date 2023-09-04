@@ -117,6 +117,8 @@
       (catch_all (i32.const 1))))
 
   (func $throw-void (throw $e0))
+
+(; "tail call" isn't implemented
   (func (export "return-call-in-try-delegate")
     (try $l
       (do
@@ -145,6 +147,7 @@
       (catch $e0)
     )
   )
+;)
 )
 
 (assert_return (invoke "delegate-no-throw") (i32.const 1))
@@ -170,8 +173,10 @@
 
 (assert_return (invoke "delegate-correct-targets") (i32.const 1))
 
+(; "tail call" isn't implemented
 (assert_exception (invoke "return-call-in-try-delegate"))
 (assert_exception (invoke "return-call-indirect-in-try-delegate"))
+;)
 
 (assert_malformed
   (module quote "(module (func (delegate 0)))")

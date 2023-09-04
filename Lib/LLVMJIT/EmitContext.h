@@ -55,12 +55,6 @@ namespace WAVM { namespace LLVMJIT {
 		};
 		std::vector<MemoryInfo> memoryInfos;
 
-		struct TryContext
-		{
-			llvm::BasicBlock* unwindToBlock;
-		};
-		std::vector<TryContext> tryStack;
-
 		EmitContext(LLVMContext& inLLVMContext, const std::vector<llvm::Constant*>& inMemoryOffsets)
 		: llvmContext(inLLVMContext)
 		, irBuilder(inLLVMContext)
@@ -200,7 +194,8 @@ namespace WAVM { namespace LLVMJIT {
 		// Emits a call to a WAVM intrinsic function.
 		ValueVector emitRuntimeIntrinsic(const char* intrinsicName,
 										 IR::FunctionType intrinsicType,
-										 const std::initializer_list<llvm::Value*>& args)
+										 const std::initializer_list<llvm::Value*>& args,
+										 llvm::BasicBlock* unwindToBlock)
 		{
 			WAVM_ASSERT(intrinsicType.callingConvention() == IR::CallingConvention::intrinsic);
 
@@ -217,14 +212,14 @@ namespace WAVM { namespace LLVMJIT {
 			}
 
 			return emitCallOrInvoke(
-				intrinsicFunction, args, intrinsicType, getInnermostUnwindToBlock());
+				intrinsicFunction, args, intrinsicType, unwindToBlock);
 		}
 
 		// Creates either a call or an invoke if the call occurs inside a try.
 		ValueVector emitCallOrInvoke(llvm::Value* callee,
 									 llvm::ArrayRef<llvm::Value*> args,
 									 IR::FunctionType calleeType,
-									 llvm::BasicBlock* unwindToBlock = nullptr)
+									 llvm::BasicBlock* unwindToBlock)
 		{
 			const IR::CallingConvention callingConvention = calleeType.callingConvention();
 
@@ -385,7 +380,8 @@ namespace WAVM { namespace LLVMJIT {
 									 IR::FunctionType(IR::TypeTuple{},
 													  IR::TypeTuple{iptrValueType},
 													  IR::CallingConvention::intrinsic),
-									 {irBuilder.CreatePtrToInt(exception, iptrType)});
+									 {irBuilder.CreatePtrToInt(exception, iptrType)},
+									 unwindToBlock);
 				irBuilder.CreateUnreachable();
 
 				// Load the results from the results array.
@@ -457,8 +453,6 @@ namespace WAVM { namespace LLVMJIT {
 
 			irBuilder.CreateRet(returnStruct);
 		}
-
-		llvm::BasicBlock* getInnermostUnwindToBlock();
 
 	private:
 		std::vector<llvm::Constant*> memoryOffsets;

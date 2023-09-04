@@ -148,7 +148,8 @@ InvokeThunkPointer LLVMJIT::getInvokeThunk(FunctionType functionType)
 		emitContext.irBuilder.CreatePointerCast(
 			functionCode, asLLVMType(llvmContext, functionType)->getPointerTo()),
 		arguments,
-		functionType);
+		functionType,
+		nullptr);
 
 	// Write the function's results to the results array.
 	WAVM_ASSERT(results.size() == functionType.results().size());

@@ -365,6 +365,7 @@ struct FunctionValidationContext
 			case ControlContext::Type::loop: controlStackString += "L"; break;
 			case ControlContext::Type::try_: controlStackString += "R"; break;
 			case ControlContext::Type::catch_: controlStackString += "C"; break;
+			case ControlContext::Type::catch_all: controlStackString += "A"; break;
 			default: WAVM_UNREACHABLE();
 			};
 			if(!controlStack[stackIndex].isReachable) { controlStackString += ")"; }
@@ -431,9 +432,6 @@ struct FunctionValidationContext
 	{
 		WAVM_ASSERT(controlStack.size());
 
-		if(controlStack.back().type == ControlContext::Type::try_)
-		{ throw ValidationException("end may not occur in try context"); }
-
 		TypeTuple results = controlStack.back().results;
 		if(controlStack.back().type == ControlContext::Type::ifThen
 		   && results != controlStack.back().elseParams)
@@ -475,8 +473,21 @@ struct FunctionValidationContext
 	{
 		VALIDATE_FEATURE("catch", exceptionHandling);
 		VALIDATE_INDEX(imm.exceptionTypeIndex, module.tags.size());
-                const IndexedTagType& tagType = module.tags.getType(imm.exceptionTypeIndex);
-		validateCatch();
+		const IndexedTagType& tagType = module.tags.getType(imm.exceptionTypeIndex);
+
+		WAVM_ASSERT(controlStack.size());
+
+		popAndValidateTypeTuple("try result", controlStack.back().results);
+		validateStackEmptyAtEndOfControlStructure();
+
+		if(controlStack.back().type != ControlContext::Type::try_
+		   && controlStack.back().type != ControlContext::Type::catch_)
+		{
+			throw ValidationException("catch only allowed in try/catch context");
+		}
+		controlStack.back().type = ControlContext::Type::catch_;
+		controlStack.back().isReachable = true;
+
 		VALIDATE_INDEX(tagType.index, module.types.size());
 		const auto& type = module.types[tagType.index];
 		for(auto param : type.params()) { pushOperand(param); }
@@ -484,7 +495,19 @@ struct FunctionValidationContext
 	void catch_all(NoImm)
 	{
 		VALIDATE_FEATURE("catch_all", exceptionHandling);
-		validateCatch();
+
+		WAVM_ASSERT(controlStack.size());
+
+		popAndValidateTypeTuple("try result", controlStack.back().results);
+		validateStackEmptyAtEndOfControlStructure();
+
+		if(controlStack.back().type != ControlContext::Type::try_
+		   && controlStack.back().type != ControlContext::Type::catch_)
+		{
+			throw ValidationException("catch_all only allowed in try/catch context");
+		}
+		controlStack.back().type = ControlContext::Type::catch_all;
+		controlStack.back().isReachable = true;
 	}
 
 	void delegate(DelegateImm imm)
@@ -500,12 +523,11 @@ struct FunctionValidationContext
 		{
 			throw ValidationException("delegate only allowed in try context");
 		}
+		if (imm.delegateDepth >= controlStack.size() - 1)
+		{
+			throw ValidationException("delegate target is out of function");
+		}
 
-		auto targetBlockType = getBranchTargetByDepth(imm.delegateDepth + 1).type;
-		VALIDATE_UNLESS(
-					"delegate must target a try or a function: ",
-					targetBlockType != ControlContext::Type::try_ &&
-					targetBlockType != ControlContext::Type::function);
 
 		controlStack.pop_back();
 		if(controlStack.size()) { pushOperandTuple(results); }
@@ -669,9 +691,11 @@ struct FunctionValidationContext
 	void rethrow(RethrowImm imm)
 	{
 		VALIDATE_FEATURE("rethrow", exceptionHandling);
+		auto targetContextType = getBranchTargetByDepth(imm.catchDepth).type;
 		VALIDATE_UNLESS(
 			"rethrow must target a catch: ",
-			getBranchTargetByDepth(imm.catchDepth).type != ControlContext::Type::catch_);
+			targetContextType != ControlContext::Type::catch_
+			&& targetContextType != ControlContext::Type::catch_all);
 		enterUnreachable();
 	}
 
@@ -871,7 +895,8 @@ private:
 			ifElse,
 			loop,
 			try_,
-			catch_
+			catch_,
+			catch_all
 		};
 
 		Type type;

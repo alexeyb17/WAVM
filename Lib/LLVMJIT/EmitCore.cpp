@@ -143,8 +143,8 @@ void EmitFunctionContext::end(NoImm)
 	WAVM_ASSERT(controlStack.size());
 	ControlContext& currentContext = controlStack.back();
 
-	if(currentContext.type == ControlContext::Type::try_) { endTryWithoutCatch(); }
-	else if(currentContext.type == ControlContext::Type::catch_)
+	if (currentContext.type == ControlContext::Type::catch_
+	   || currentContext.type == ControlContext::Type::catch_all)
 	{
 		endTryCatch();
 	}
@@ -343,8 +343,7 @@ void EmitFunctionContext::call(FunctionImm imm)
 	// Call the function.
 	ValueVector results = emitCallOrInvoke(callee,
 										   llvm::ArrayRef<llvm::Value*>(llvmArgs, numArguments),
-										   calleeType,
-										   getInnermostUnwindToBlock());
+										   calleeType);
 
 	// Push the results on the operand stack.
 	for(llvm::Value* result : results) { push(result); }
@@ -436,8 +435,7 @@ void EmitFunctionContext::call_indirect(CallIndirectImm imm)
 		asLLVMType(llvmContext, calleeType)->getPointerTo());
 	ValueVector results = emitCallOrInvoke(functionPointer,
 										   llvm::ArrayRef<llvm::Value*>(llvmArgs, numArguments),
-										   calleeType,
-										   getInnermostUnwindToBlock());
+										   calleeType);
 
 	// Push the results on the operand stack.
 	for(llvm::Value* result : results) { push(result); }
