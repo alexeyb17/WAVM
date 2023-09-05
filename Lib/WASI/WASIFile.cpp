@@ -136,13 +136,12 @@ static bool readUserString(Memory* memory,
 			for(Uptr index = 0; index < numStringBytes; ++index)
 			{ outString += stringBytes[index]; }
 		},
-		[&succeeded](Exception* exception) {
+		[&succeeded](const Exception& exception) {
 			WAVM_ERROR_UNLESS(getExceptionType(exception)
 							  == ExceptionTypes::outOfBoundsMemoryAccess);
 			Log::printf(Log::debug,
 						"Caught runtime exception while reading string at address 0x%" PRIx64,
 						getExceptionArgument(exception, 1).i64);
-			destroyException(exception);
 
 			succeeded = false;
 		});
@@ -421,14 +420,13 @@ static __wasi_errno_t readImpl(Process* process,
 					lockedFDE.fde->vfd->readv(vfsReadBuffers, numIOVs, &outNumBytesRead, offset));
 			}
 		},
-		[&](Exception* exception) {
+		[&](const Exception& exception) {
 			// If we catch an out-of-bounds memory exception, return EFAULT.
 			WAVM_ERROR_UNLESS(getExceptionType(exception)
 							  == ExceptionTypes::outOfBoundsMemoryAccess);
 			Log::printf(Log::debug,
 						"Caught runtime exception while reading memory at address 0x%" PRIx64,
 						getExceptionArgument(exception, 1).i64);
-			destroyException(exception);
 			result = __WASI_EFAULT;
 		});
 
@@ -483,14 +481,13 @@ static __wasi_errno_t writeImpl(Process* process,
 					vfsWriteBuffers, numIOVs, &outNumBytesWritten, offset));
 			}
 		},
-		[&](Exception* exception) {
+		[&](const Exception& exception) {
 			// If we catch an out-of-bounds memory exception, return EFAULT.
 			WAVM_ERROR_UNLESS(getExceptionType(exception)
 							  == ExceptionTypes::outOfBoundsMemoryAccess);
 			Log::printf(Log::debug,
 						"Caught runtime exception while reading memory at address 0x%" PRIx64,
 						getExceptionArgument(exception, 1).i64);
-			destroyException(exception);
 			result = __WASI_EFAULT;
 		});
 

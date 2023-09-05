@@ -640,21 +640,34 @@ IMPLEMENT_REF_BASE(ref, Object)
 
 // wasm_trap_t
 
-void wasm_trap_delete(wasm_trap_t* trap) { destroyException(trap); }
+void wasm_trap_delete(wasm_trap_t* trap)
+{
+	// TODO
+}
 
-wasm_trap_t* wasm_trap_copy(const wasm_trap_t* trap) { return new Exception(*trap); }
+wasm_trap_t* wasm_trap_copy(const wasm_trap_t* trap)
+{
+	// TODO
+	return nullptr;
+}
 bool wasm_trap_same(const wasm_trap_t* a, const wasm_trap_t* b) { return a == b; }
 
-void* wasm_trap_get_host_info(const wasm_trap_t* trap) { return getUserData(trap); }
+void* wasm_trap_get_host_info(const wasm_trap_t* trap)
+{
+	// TODO
+	return nullptr;
+}
+
 void wasm_trap_set_host_info(wasm_trap_t* trap, void* userData)
 {
-	setUserData(trap, userData, nullptr);
+  // TODO
 }
+
 void wasm_trap_set_host_info_with_finalizer(wasm_trap_t* trap,
 											void* userData,
 											void (*finalizeUserData)(void*))
 {
-	setUserData(trap, userData, finalizeUserData);
+	// TODO
 }
 
 wasm_ref_t* wasm_trap_as_ref(wasm_trap_t* trap) { Errors::unimplemented("wasm_trap_as_ref"); }
@@ -672,45 +685,54 @@ wasm_trap_t* wasm_trap_new(wasm_compartment_t* compartment,
 						   const char* message,
 						   size_t num_message_bytes)
 {
-	return createException(ExceptionTypes::calledAbort, nullptr, 0, Platform::captureCallStack(1));
+	// TODO
+	return nullptr;
+//	return createException(ExceptionTypes::calledAbort, nullptr, 0, Platform::captureCallStack(1));
 }
+
 bool wasm_trap_message(const wasm_trap_t* trap, char* out_message, size_t* inout_num_message_bytes)
 {
-	const std::string description = describeExceptionType(getExceptionType(trap));
-	if(*inout_num_message_bytes < description.size())
-	{
-		*inout_num_message_bytes = description.size();
-		return false;
-	}
-	else
-	{
-		WAVM_ASSERT(out_message);
-		memcpy(out_message, description.c_str(), description.size());
-		*inout_num_message_bytes = description.size();
-		return true;
-	}
+	// TODO
+	return false;
+//	const std::string description = describeExceptionType(getExceptionType(trap));
+//	if(*inout_num_message_bytes < description.size())
+//	{
+//		*inout_num_message_bytes = description.size();
+//		return false;
+//	}
+//	else
+//	{
+//		WAVM_ASSERT(out_message);
+//		memcpy(out_message, description.c_str(), description.size());
+//		*inout_num_message_bytes = description.size();
+//		return true;
+//	}
 }
+
 size_t wasm_trap_stack_num_frames(const wasm_trap_t* trap)
 {
-	const Platform::CallStack& callStack = getExceptionCallStack(trap);
-	return callStack.frames.size();
+	// TODO
+	return 0;
+//	const Platform::CallStack& callStack = getExceptionCallStack(trap);
+//	return callStack.frames.size();
 }
 void wasm_trap_stack_frame(const wasm_trap_t* trap, size_t index, wasm_frame_t* out_frame)
 {
-	const Platform::CallStack& callStack = getExceptionCallStack(trap);
-	const Platform::CallStack::Frame& frame = callStack.frames[index];
-	InstructionSource source;
-	if(getInstructionSourceByAddress(frame.ip, source)
-	   && source.type == InstructionSource::Type::wasm)
-	{
-		out_frame->function = source.wasm.function;
-		out_frame->instr_index = source.wasm.instructionIndex;
-	}
-	else
-	{
-		out_frame->function = nullptr;
-		out_frame->instr_index = 0;
-	}
+	// TODO
+//	const Platform::CallStack& callStack = getExceptionCallStack(trap);
+//	const Platform::CallStack::Frame& frame = callStack.frames[index];
+//	InstructionSource source;
+//	if(getInstructionSourceByAddress(frame.ip, source)
+//	   && source.type == InstructionSource::Type::wasm)
+//	{
+//		out_frame->function = source.wasm.function;
+//		out_frame->instr_index = source.wasm.instructionIndex;
+//	}
+//	else
+//	{
+//		out_frame->function = nullptr;
+//		out_frame->instr_index = 0;
+//	}
 }
 
 // wasm_foreign_t
@@ -886,6 +908,7 @@ wasm_func_t* wasm_func_new(wasm_compartment_t* compartment,
 						   wasm_func_callback_t callback,
 						   const char* debug_name)
 {
+	// TODO: wrap callback and eliminate cAPICallback?
 	FunctionType callbackType(
 		type->type.results(), type->type.params(), CallingConvention::cAPICallback);
 	Intrinsics::Module intrinsicModule;
@@ -942,7 +965,10 @@ wasm_trap_t* wasm_func_call(wasm_store_t* store,
 					&outResults[resultIndex], &wavmResults[resultIndex].bytes, sizeof(wasm_val_t));
 			}
 		},
-		[&exception](Exception* caughtException) { exception = caughtException; });
+		[&exception](const Exception& caughtException)
+		{
+			// TODO: convert to trap
+		});
 
 	return exception;
 }
@@ -999,7 +1025,7 @@ bool wasm_table_set(wasm_table_t* table, wasm_table_size_t index, wasm_ref_t* va
 {
 	bool result = true;
 	catchRuntimeExceptions([table, index, value]() { setTableElement(table, index, value); },
-						   [&result](Runtime::Exception* exception) { result = false; });
+						   [&result](const Runtime::Exception&) { result = false; });
 	return result;
 }
 
@@ -1139,12 +1165,10 @@ wasm_instance_t* wasm_instance_new(wasm_store_t* store,
 			Function* startFunction = getStartFunction(instance);
 			if(startFunction) { invokeFunction(store, startFunction); }
 		},
-		[&](Runtime::Exception* exception) {
-			if(out_trap) { *out_trap = exception; }
-			else
-			{
-				destroyException(exception);
-			}
+		[&](const Runtime::Exception& exception)
+		{
+			// TODO convert to trap
+//			if(out_trap) { *out_trap = exception; }
 		});
 
 	return instance;

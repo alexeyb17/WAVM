@@ -35,32 +35,81 @@ using namespace WAVM::IR;
 using namespace WAVM::LLVMJIT;
 using namespace WAVM::Runtime;
 
-static llvm::Function* getCXABeginCatchFunction(EmitModuleContext& moduleContext)
+static llvm::Function* getCXAAllocateExceptionFunction(EmitModuleContext& moduleContext)
 {
-	if(!moduleContext.cxaBeginCatchFunction)
+	auto& rv = moduleContext.cxaAllocateExceptionFunction;
+	if(!rv)
 	{
 		LLVMContext& llvmContext = moduleContext.llvmContext;
-		moduleContext.cxaBeginCatchFunction = llvm::Function::Create(
+		rv = llvm::Function::Create(
+			llvm::FunctionType::get(llvmContext.i8PtrType, {moduleContext.iptrType}, false),
+			llvm::GlobalValue::LinkageTypes::ExternalLinkage,
+			"__cxa_allocate_exception",
+			moduleContext.llvmModule);
+	}
+	return rv;
+}
+
+static llvm::Function* getCXAThrowFunction(EmitModuleContext& moduleContext)
+{
+	auto& rv = moduleContext.cxaThrowFunction;
+	if(!rv)
+	{
+		LLVMContext& llvmContext = moduleContext.llvmContext;
+		rv = llvm::Function::Create(
+			llvm::FunctionType::get(llvm::Type::getVoidTy(llvmContext),
+									{moduleContext.iptrType, llvmContext.i8PtrType, moduleContext.iptrType},
+									false),
+			llvm::GlobalValue::LinkageTypes::ExternalLinkage,
+			"__cxa_throw",
+			moduleContext.llvmModule);
+	}
+	return rv;
+}
+
+static llvm::Function* getCXARethrowFunction(EmitModuleContext& moduleContext)
+{
+	auto& rv = moduleContext.cxaRethrowFunction;
+	if(!rv)
+	{
+		LLVMContext& llvmContext = moduleContext.llvmContext;
+		rv = llvm::Function::Create(
+			llvm::FunctionType::get(llvm::Type::getVoidTy(llvmContext), false),
+			llvm::GlobalValue::LinkageTypes::ExternalLinkage,
+			"__cxa_rethrow",
+			moduleContext.llvmModule);
+	}
+	return rv;
+}
+
+static llvm::Function* getCXABeginCatchFunction(EmitModuleContext& moduleContext)
+{
+	auto& rv = moduleContext.cxaBeginCatchFunction;
+	if(!rv)
+	{
+		LLVMContext& llvmContext = moduleContext.llvmContext;
+		rv = llvm::Function::Create(
 			llvm::FunctionType::get(llvmContext.i8PtrType, {llvmContext.i8PtrType}, false),
 			llvm::GlobalValue::LinkageTypes::ExternalLinkage,
 			"__cxa_begin_catch",
 			moduleContext.llvmModule);
 	}
-	return moduleContext.cxaBeginCatchFunction;
+	return rv;
 }
 
 static llvm::Function* getCXAEndCatchFunction(EmitModuleContext& moduleContext)
 {
-	if(!moduleContext.cxaEndCatchFunction)
+	auto& rv = moduleContext.cxaEndCatchFunction;
+	if(!rv)
 	{
 		LLVMContext& llvmContext = moduleContext.llvmContext;
-		moduleContext.cxaEndCatchFunction = llvm::Function::Create(
+		rv = llvm::Function::Create(
 			llvm::FunctionType::get(llvm::Type::getVoidTy(llvmContext), false),
 			llvm::GlobalValue::LinkageTypes::ExternalLinkage,
 			"__cxa_end_catch",
 			moduleContext.llvmModule);
 	}
-	return moduleContext.cxaEndCatchFunction;
+	return rv;
 }
 
 void EmitFunctionContext::endTryCatch()
@@ -77,13 +126,11 @@ void EmitFunctionContext::endTryCatch()
 	// handler type ID tests by rethrowing the exception if its type ID didn't match any of the
 	// handlers.
 	llvm::BasicBlock* savedInsertionPoint = irBuilder.GetInsertBlock();
+
 	irBuilder.SetInsertPoint(catchContext.nextHandlerBlock);
-	emitRuntimeIntrinsic(
-		"throwException",
-		FunctionType(
-			TypeTuple{}, TypeTuple{moduleContext.iptrValueType}, CallingConvention::intrinsic),
-		{irBuilder.CreatePtrToInt(catchContext.exceptionPointer, moduleContext.iptrType)});
+	emitCallOrInvoke(getCXARethrowFunction(moduleContext), {}, FunctionType({}, {}, CallingConvention::c));
 	irBuilder.CreateUnreachable();
+
 	irBuilder.SetInsertPoint(savedInsertionPoint);
 }
 
@@ -93,17 +140,10 @@ void EmitFunctionContext::exitCatch()
 	WAVM_ASSERT(currentContext.type == ControlContext::Type::catch_
 				|| currentContext.type == ControlContext::Type::catch_all);
 
-//	CatchContext& catchContext = currentContext.catchContext;
-
-//	if(currentContext.isReachable)
-//	{
-//		// Destroy the exception caught by the previous catch clause.
-//		emitRuntimeIntrinsic(
-//			"destroyException",
-//			FunctionType(
-//				TypeTuple{}, TypeTuple{moduleContext.iptrValueType}, CallingConvention::intrinsic),
-//			{irBuilder.CreatePtrToInt(catchContext.exceptionPointer, moduleContext.iptrType)});
-//	}
+	if (currentContext.isReachable)
+	{
+		irBuilder.CreateCall(getCXAEndCatchFunction(moduleContext));
+	}
 }
 
 llvm::BasicBlock* EmitFunctionContext::getInnermostUnwindToBlock()
@@ -205,9 +245,6 @@ void EmitFunctionContext::try_(ControlStructureImm imm)
 			auto exceptionPointer
 				= irBuilder.CreateCall(getCXABeginCatchFunction(moduleContext),
 									   {irBuilder.CreateExtractValue(landingPadInst, {0})});
-
-			// Call __cxa_end_catch immediately to free memory used to throw the exception.
-			irBuilder.CreateCall(getCXAEndCatchFunction(moduleContext));
 
 			// Load the exception type ID.
 			auto exceptionTypeId = loadFromUntypedPointer(
@@ -368,19 +405,29 @@ void EmitFunctionContext::throw_(ExceptionTypeImm imm)
 	llvm::Value* argsPointerAsInt
 		= irBuilder.CreatePtrToInt(argBaseAddress, moduleContext.iptrType);
 
+	llvm::Value* exceptionSize = emitLiteral(llvmContext,
+											 I64(offsetof(Exception, arguments) + (numArgs == 0 ? 1u : numArgs) * sizeof(IR::UntaggedValue)));
+	auto exceptionMem
+		= irBuilder.CreateCall(getCXAAllocateExceptionFunction(moduleContext), {exceptionSize});
+	llvm::Value* exceptionMemAsInt
+		= irBuilder.CreatePtrToInt(exceptionMem, moduleContext.iptrType);
+
 	llvm::Value* exceptionPointer = emitRuntimeIntrinsic(
 		"createException",
 		FunctionType(
 			TypeTuple{moduleContext.iptrValueType},
-			TypeTuple{moduleContext.iptrValueType, moduleContext.iptrValueType, ValueType::i32},
+			TypeTuple{moduleContext.iptrValueType, moduleContext.iptrValueType, moduleContext.iptrValueType, ValueType::i32},
 			IR::CallingConvention::intrinsic),
-		{exceptionTypeId, argsPointerAsInt, emitLiteral(llvmContext, I32(1))})[0];
+		{exceptionMemAsInt, exceptionTypeId, argsPointerAsInt, emitLiteral(llvmContext, I32(1))})[0];
 
-	emitRuntimeIntrinsic(
-		"throwException",
-		FunctionType(
-			TypeTuple{}, TypeTuple{moduleContext.iptrValueType}, IR::CallingConvention::intrinsic),
-		{irBuilder.CreatePtrToInt(exceptionPointer, moduleContext.iptrType)});
+	emitCallOrInvoke(getCXAThrowFunction(moduleContext),
+					 {exceptionPointer,
+					  irBuilder.CreatePtrToInt(moduleContext.runtimeExceptionTypeInfo, moduleContext.iptrType),
+					  emitLiteralIptr(0, moduleContext.iptrType)},
+					 FunctionType(
+						 TypeTuple{},
+						 TypeTuple{moduleContext.iptrValueType, moduleContext.iptrValueType, moduleContext.iptrValueType},
+						 IR::CallingConvention::c));
 
 	irBuilder.CreateUnreachable();
 	enterUnreachable();
@@ -392,12 +439,19 @@ void EmitFunctionContext::rethrow(RethrowImm imm)
 	auto& controlContext = controlStack[controlStack.size() - imm.catchDepth - 1];
 	WAVM_ASSERT(controlContext.type == ControlContext::Type::catch_
 				|| controlContext.type == ControlContext::Type::catch_all);
-	CatchContext& catchContext = controlContext.catchContext;
-	emitRuntimeIntrinsic(
-		"throwException",
-		FunctionType(
-			TypeTuple{}, TypeTuple{moduleContext.iptrValueType}, IR::CallingConvention::intrinsic),
-		{irBuilder.CreatePtrToInt(catchContext.exceptionPointer, moduleContext.iptrType)});
+
+	// End all innermost catch blocks before rethrowing exception pointed by `rethrow imm`.
+	for (Uptr depth = 0; depth != imm.catchDepth; ++depth)
+	{
+		auto& innerContext = controlStack[controlStack.size() - depth - 1];
+		if (innerContext.type == ControlContext::Type::catch_
+		   || innerContext.type == ControlContext::Type::catch_all)
+		{
+			irBuilder.CreateCall(getCXAEndCatchFunction(moduleContext));
+		}
+	}
+	// Rethrow exception from target catch.
+	emitCallOrInvoke(getCXARethrowFunction(moduleContext), {}, FunctionType({}, {}, CallingConvention::c));
 
 	irBuilder.CreateUnreachable();
 	enterUnreachable();

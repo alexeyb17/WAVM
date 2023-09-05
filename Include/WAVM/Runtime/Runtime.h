@@ -228,42 +228,26 @@ namespace WAVM { namespace Runtime {
 
 	struct Exception;
 
-	// Exception UserData
-	WAVM_API void setUserData(Exception* exception, void* userData, void (*finalizer)(void*));
-	WAVM_API void* getUserData(const Exception* exception);
-
-	// Creates a runtime exception.
-	WAVM_API Exception* createException(ExceptionType* type,
-										const IR::UntaggedValue* arguments,
-										Uptr numArguments,
-										Platform::CallStack&& callStack);
-
-	// Destroys a runtime exception.
-	WAVM_API void destroyException(Exception* exception);
-
 	// Returns the type of an exception.
-	WAVM_API ExceptionType* getExceptionType(const Exception* exception);
+	WAVM_API ExceptionType* getExceptionType(const Exception& exception);
 
 	// Returns a specific argument of an exception.
-	WAVM_API IR::UntaggedValue getExceptionArgument(const Exception* exception, Uptr argIndex);
+	WAVM_API IR::UntaggedValue getExceptionArgument(const Exception& exception, Uptr argIndex);
 
 	// Returns the call stack at the origin of an exception.
-	WAVM_API const Platform::CallStack& getExceptionCallStack(const Exception* exception);
+	WAVM_API const Platform::CallStack& getExceptionCallStack(const Exception& exception);
 
 	// Returns a string that describes the given exception cause.
-	WAVM_API std::string describeException(const Exception* exception);
-
-	// Throws a runtime exception.
-	[[noreturn]] WAVM_API void throwException(Exception* exception);
+	WAVM_API std::string describeException(const Exception& exception);
 
 	// Creates and throws a runtime exception.
 	[[noreturn]] WAVM_API void throwException(ExceptionType* type,
-											  const std::vector<IR::UntaggedValue>& arguments = {});
+											  const std::vector<IR::UntaggedValue>& arguments = {},
+											  Platform::CallStack&& callStack = Platform::captureCallStack(1));
 
-	// Calls a thunk and catches any runtime exceptions that occur within it. Note that the
-	// catchThunk takes ownership of the exception, and is responsible for calling destroyException.
+	// Calls a thunk and catches any runtime exceptions that occur within it.
 	WAVM_API void catchRuntimeExceptions(const std::function<void()>& thunk,
-										 const std::function<void(Exception*)>& catchThunk);
+										 const std::function<void(const Exception&)>& catchThunk);
 
 	// Calls a thunk and ensures that any signals that occur within the thunk will be thrown as
 	// runtime exceptions.

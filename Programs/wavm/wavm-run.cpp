@@ -845,7 +845,7 @@ struct State
 	{
 		int result = EXIT_FAILURE;
 		Runtime::catchRuntimeExceptions([&result, argv, this]() { result = run(argv); },
-										[](Runtime::Exception* exception) {
+										[](const Runtime::Exception& exception) {
 											// Treat any unhandled exception as a fatal error.
 											Errors::fatalf("Runtime exception: %s",
 														   describeException(exception).c_str());

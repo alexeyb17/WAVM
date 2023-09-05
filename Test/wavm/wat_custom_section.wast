@@ -33,8 +33,8 @@
 )
 
 (module
-  (exception_type)
-  (custom_section "h" (after exception_type) "")
+  (tag)
+  (custom_section "h" (after tag) "")
 )
 
 (module

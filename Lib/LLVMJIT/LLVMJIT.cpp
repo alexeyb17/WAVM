@@ -1,3 +1,7 @@
+#ifndef _WIN32
+#include <cxxabi.h>
+#endif
+
 #include "WAVM/LLVMJIT/LLVMJIT.h"
 #include <utility>
 #include "LLVMJITPrivate.h"
@@ -43,8 +47,6 @@ namespace LLVMRuntimeSymbols {
 	extern "C" void wavm_probe_stack();
 #endif
 	extern "C" int __gxx_personality_v0();
-	extern "C" void* __cxa_begin_catch(void*) throw();
-	extern "C" void __cxa_end_catch();
 #endif
 
 	static HashMap<std::string, void*> map = {
@@ -61,8 +63,11 @@ namespace LLVMRuntimeSymbols {
 		{"wavm_probe_stack", (void*)&wavm_probe_stack},
 #endif
 		{"__gxx_personality_v0", (void*)&__gxx_personality_v0},
-		{"__cxa_begin_catch", (void*)&__cxa_begin_catch},
-		{"__cxa_end_catch", (void*)&__cxa_end_catch},
+		{"__cxa_allocate_exception", (void*)&__cxxabiv1::__cxa_allocate_exception},
+		{"__cxa_throw", (void*)&__cxxabiv1::__cxa_throw},
+		{"__cxa_rethrow", (void*)&__cxxabiv1::__cxa_rethrow},
+		{"__cxa_begin_catch", (void*)&__cxxabiv1::__cxa_begin_catch},
+		{"__cxa_end_catch", (void*)&__cxxabiv1::__cxa_end_catch},
 #endif
 	};
 }

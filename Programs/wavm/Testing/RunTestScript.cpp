@@ -948,16 +948,15 @@ static void processAssertTrap(TestScriptState& state, const AssertTrapCommand* a
 						   asString(actionResults).c_str());
 			}
 		},
-		[&](Runtime::Exception* exception) {
-			if(!isExpectedExceptionType(assertCommand->expectedType, exception->type))
+		[&](const Runtime::Exception& exception) {
+			if(!isExpectedExceptionType(assertCommand->expectedType, exception.type))
 			{
 				testErrorf(state,
 						   assertCommand->action->locus,
 						   "expected %s trap but got %s trap",
 						   describeExpectedTrapType(assertCommand->expectedType).c_str(),
-						   describeExceptionType(exception->type).c_str());
+						   describeExceptionType(exception.type).c_str());
 			}
-			destroyException(exception);
 		});
 }
 
@@ -997,14 +996,14 @@ static void processAssertThrows(TestScriptState& state, const AssertThrowsComman
 						   asString(actionResults).c_str());
 			}
 		},
-		[&](Runtime::Exception* exception) {
-			if(exception->type != expectedExceptionType)
+		[&](const Runtime::Exception& exception) {
+			if(exception.type != expectedExceptionType)
 			{
 				testErrorf(state,
 						   assertCommand->action->locus,
 						   "expected %s exception but got %s exception",
 						   describeExceptionType(expectedExceptionType).c_str(),
-						   describeExceptionType(exception->type).c_str());
+						   describeExceptionType(exception.type).c_str());
 			}
 			else
 			{
@@ -1015,7 +1014,7 @@ static void processAssertThrows(TestScriptState& state, const AssertThrowsComman
 					++argumentIndex)
 				{
 					Value argumentValue(exceptionParameterTypes[argumentIndex],
-										exception->arguments[argumentIndex]);
+										exception.arguments[argumentIndex]);
 					if(argumentValue != assertCommand->expectedArguments[argumentIndex])
 					{
 						testErrorf(
@@ -1028,7 +1027,6 @@ static void processAssertThrows(TestScriptState& state, const AssertThrowsComman
 					}
 				}
 			}
-			destroyException(exception);
 		});
 }
 
@@ -1046,9 +1044,8 @@ static void processAssertException(TestScriptState& state, const AssertException
 						   asString(actionResults).c_str());
 			}
 		},
-		[&](Runtime::Exception* exception) {
-			destroyException(exception);
-		});
+		[&](const Runtime::Exception&) {}
+		);
 }
 
 static void processAssertInvalid(TestScriptState& state,
@@ -1110,8 +1107,7 @@ static void processAssertUnlinkable(TestScriptState& state,
 				testErrorf(state, assertCommand->locus, "module was linkable");
 			}
 		},
-		[&](Runtime::Exception* exception) {
-			destroyException(exception);
+		[&](const Runtime::Exception&) {
 			// If the instantiation throws an exception, the assert_unlinkable succeeds.
 		});
 }
@@ -1520,12 +1516,11 @@ static void processCommands(TestScriptState& state,
 		}
 		catchRuntimeExceptions(
 			[&state, &command] { processCommandWithCloning(state, command.get()); },
-			[&state, &command](Runtime::Exception* exception) {
+			[&state, &command](const Runtime::Exception& exception) {
 				testErrorf(state,
 						   command->locus,
-						   "unexpected trap: %s",
-						   describeExceptionType(exception->type).c_str());
-				destroyException(exception);
+						   "unexpected exception: %s",
+						   describeException(exception).c_str());
 			});
 	}
 }

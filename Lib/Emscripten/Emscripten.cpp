@@ -805,14 +805,13 @@ WAVM_DEFINE_INTRINSIC_FUNCTION(env,
 				}
 			}
 		},
-		[&](Exception* exception) {
+		[&](const Exception& exception) {
 			// If we catch an out-of-bounds memory exception, return EFAULT.
 			WAVM_ERROR_UNLESS(getExceptionType(exception)
 							  == ExceptionTypes::outOfBoundsMemoryAccess);
 			Log::printf(Log::debug,
 						"Caught runtime exception while accessing memory at address 0x%" PRIx64,
 						getExceptionArgument(exception, 1).i64);
-			destroyException(exception);
 			result = emabi::efault;
 		});
 
@@ -859,14 +858,13 @@ static emabi::Result writeImpl(Emscripten::Process* process,
 					vfd->writev(vfsWriteBuffers, numIOVs, &outNumBytesWritten, offset));
 			}
 		},
-		[&](Exception* exception) {
+		[&](const Exception& exception) {
 			// If we catch an out-of-bounds memory exception, return EFAULT.
 			WAVM_ERROR_UNLESS(getExceptionType(exception)
 							  == ExceptionTypes::outOfBoundsMemoryAccess);
 			Log::printf(Log::debug,
 						"Caught runtime exception while reading memory at address 0x%" PRIx64,
 						getExceptionArgument(exception, 1).i64);
-			destroyException(exception);
 			result = emabi::efault;
 		});
 

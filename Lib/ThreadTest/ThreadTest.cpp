@@ -1,6 +1,7 @@
 #include "WAVM/Platform/Thread.h"
 #include <stdint.h>
 #include <atomic>
+#include <exception>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -35,8 +36,7 @@ struct Thread
 	GCPointer<Function> entryFunction;
 
 	Platform::Mutex resultMutex;
-	bool threwException = false;
-	Exception* exception = nullptr;
+	std::exception_ptr exception;
 	I64 result = -1;
 
 	I32 argument;
@@ -118,7 +118,7 @@ static I64 threadEntry(void* threadVoid)
 			Platform::Mutex::Lock resultLock(currentThread->resultMutex);
 			currentThread->result = result;
 		},
-		[](Exception* exception) {
+		[](const Exception& exception) {
 			Platform::Mutex::Lock resultLock(currentThread->resultMutex);
 			if(currentThread->numRefs == 1)
 			{
@@ -128,8 +128,7 @@ static I64 threadEntry(void* threadVoid)
 			}
 			else
 			{
-				currentThread->threwException = true;
-				currentThread->exception = exception;
+				currentThread->exception = std::current_exception();
 			}
 		});
 
@@ -196,7 +195,10 @@ WAVM_DEFINE_INTRINSIC_FUNCTION(threadTest, "joinThread", I64, joinThread, U64 th
 	thread->platformThread = nullptr;
 
 	Platform::Mutex::Lock resultLock(thread->resultMutex);
-	if(thread->threwException) { throwException(thread->exception); }
+	if (thread->exception)
+	{
+		std::rethrow_exception(thread->exception);
+	}
 	else
 	{
 		return thread->result;
@@ -212,10 +214,16 @@ WAVM_DEFINE_INTRINSIC_FUNCTION(threadTest, "detachThread", void, detachThread, U
 
 	// If the thread threw an exception, turn it into a fatal error.
 	Platform::Mutex::Lock resultLock(thread->resultMutex);
-	if(thread->threwException)
+	if(thread->exception)
 	{
-		Errors::fatalf("Runtime exception in detached thread: %s",
-					   describeException(thread->exception).c_str());
+		try
+		{
+			std::rethrow_exception(thread->exception);
+		} catch (const Exception& exception)
+		{
+			Errors::fatalf("Runtime exception in detached thread: %s",
+						   describeException(exception).c_str());
+		}
 	}
 }
 

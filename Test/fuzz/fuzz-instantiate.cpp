@@ -59,7 +59,7 @@ extern "C" I32 LLVMFuzzerTestOneInput(const U8* data, Uptr numBytes)
 									  "fuzz",
 									  resourceQuota);
 				},
-				[&](Exception* exception) { destroyException(exception); });
+				[&](const Exception&) { });
 		}
 	}
 	WAVM_ERROR_UNLESS(tryCollectCompartment(std::move(compartment)));

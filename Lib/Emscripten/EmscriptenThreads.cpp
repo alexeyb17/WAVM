@@ -81,7 +81,7 @@ static I64 threadEntry(void* threadVoid)
 				thread->exitCode.store(exitThreadException.exitCode);
 			}
 		},
-		[](Exception* exception) {
+		[](const Exception& exception) {
 			Errors::fatalf("Runtime exception: %s", describeException(exception).c_str());
 		});
 

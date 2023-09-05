@@ -771,9 +771,9 @@ std::shared_ptr<LLVMJIT::Module> LLVMJIT::loadModule(
 	std::type_info* runtimeExceptionPointerTypeInfo = nullptr;
 	try
 	{
-		throw(Runtime::Exception*) nullptr;
+		throw Runtime::Exception();
 	}
-	catch(Runtime::Exception*)
+	catch(const Runtime::Exception&)
 	{
 		runtimeExceptionPointerTypeInfo = __cxxabiv1::__cxa_current_exception_type();
 	}

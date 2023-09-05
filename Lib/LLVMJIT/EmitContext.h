@@ -356,7 +356,7 @@ namespace WAVM { namespace LLVMJIT {
 				break;
 			}
 			case IR::CallingConvention::cAPICallback: {
-				// Check whether the call returned an Exception.
+				// Check whether the call returned wasm_trap_t object.
 				auto exception = returnValue;
 				auto function = irBuilder.GetInsertBlock()->getParent();
 				auto trapBlock = llvm::BasicBlock::Create(llvmContext, "intrinsicTrap", function);
@@ -368,20 +368,20 @@ namespace WAVM { namespace LLVMJIT {
 					returnBlock,
 					trapBlock);
 
-				// If the call returned and Exception, throw it.
+				// TODO: If the call returned wasm_trap_t, throw an exception and delete trap.
 				irBuilder.SetInsertPoint(trapBlock);
-				llvm::Module* llvmModule = irBuilder.GetInsertBlock()->getParent()->getParent();
-				llvm::Type* iptrType
-					= llvmModule->getDataLayout().getIntPtrType(exception->getType());
-				IR::ValueType iptrValueType = iptrType->getIntegerBitWidth() == 32
-												  ? IR::ValueType::i32
-												  : IR::ValueType::i64;
-				emitRuntimeIntrinsic("throwException",
-									 IR::FunctionType(IR::TypeTuple{},
-													  IR::TypeTuple{iptrValueType},
-													  IR::CallingConvention::intrinsic),
-									 {irBuilder.CreatePtrToInt(exception, iptrType)},
-									 unwindToBlock);
+//				llvm::Module* llvmModule = irBuilder.GetInsertBlock()->getParent()->getParent();
+//				llvm::Type* iptrType
+//					= llvmModule->getDataLayout().getIntPtrType(exception->getType());
+//				IR::ValueType iptrValueType = iptrType->getIntegerBitWidth() == 32
+//												  ? IR::ValueType::i32
+//												  : IR::ValueType::i64;
+//				emitRuntimeIntrinsic("throwException",
+//									 IR::FunctionType(IR::TypeTuple{},
+//													  IR::TypeTuple{iptrValueType},
+//													  IR::CallingConvention::intrinsic),
+//									 {irBuilder.CreatePtrToInt(exception, iptrType)},
+//									 unwindToBlock);
 				irBuilder.CreateUnreachable();
 
 				// Load the results from the results array.

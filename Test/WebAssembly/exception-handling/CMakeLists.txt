@@ -5,4 +5,4 @@ ADD_WAST_TESTS(
 		tag.wast
 		try_catch.wast
 		try_delegate.wast
-	WAVM_ARGS --test-cloning)
+        WAVM_ARGS --test-cloning --enable exception-handling)

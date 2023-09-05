@@ -124,36 +124,18 @@ namespace WAVM { namespace Runtime {
 					  == compartmentReservedBytes,
 				  "CompartmentRuntimeData isn't the expected size");
 
-	struct Exception
+	// Exception shouldn't be created and thrown directly, use Runtime::throwException() instead.
+	struct Exception final
 	{
 		Uptr typeId;
 		ExceptionType* type;
 		U8 isUserException;
 		Platform::CallStack callStack;
-		void* userData;
-		void (*finalizeUserData)(void*);
 		IR::UntaggedValue arguments[1];
 
-		Exception(Uptr inTypeId,
-				  ExceptionType* inType,
-				  bool inIsUserException,
-				  Platform::CallStack&& inCallStack)
-		: typeId(inTypeId)
-		, type(inType)
-		, isUserException(inIsUserException ? 1 : 0)
-		, callStack(std::move(inCallStack))
-		, userData(nullptr)
-		, finalizeUserData(nullptr)
-		{
-		}
-
-		~Exception();
-
-		static Uptr calcNumBytes(Uptr numArguments)
-		{
-			if(numArguments == 0) { numArguments = 1; }
-			return offsetof(Exception, arguments) + numArguments * sizeof(IR::UntaggedValue);
-		}
+		Exception();
+		Exception(const Exception&) = delete;
+		Exception(Exception&&) = delete;
 	};
 
 	struct Object
