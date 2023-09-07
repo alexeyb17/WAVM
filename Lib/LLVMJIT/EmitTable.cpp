@@ -45,6 +45,26 @@ void EmitFunctionContext::ref_func(FunctionRefImm imm)
 	push(externref);
 }
 
+llvm::Value* EmitFunctionContext::getTableIdFromOffset(llvm::Constant* tableOffset)
+{
+#if LLVM_VERSION_MAJOR >= 15
+	return irBuilder.CreateUDiv(
+		llvm::ConstantExpr::getSub(
+			tableOffset,
+			emitLiteralIptr(offsetof(Runtime::CompartmentRuntimeData, tables),
+							tableOffset->getType())),
+		emitLiteralIptr(sizeof(Runtime::TableRuntimeData), tableOffset->getType()),
+		"", true);
+#else
+	return llvm::ConstantExpr::getExactUDiv(
+		llvm::ConstantExpr::getSub(
+			tableOffset,
+			emitLiteralIptr(offsetof(Runtime::CompartmentRuntimeData, tables),
+							tableOffset->getType())),
+		emitLiteralIptr(sizeof(Runtime::TableRuntimeData), tableOffset->getType()));
+#endif
+}
+
 void EmitFunctionContext::table_get(TableImm imm)
 {
 	llvm::Value* index = pop();

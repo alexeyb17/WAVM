@@ -193,6 +193,26 @@ llvm::Value* EmitFunctionContext::coerceAddressToPointer(llvm::Value* boundedAdd
 	return irBuilder.CreatePointerCast(bytePointer, memoryType->getPointerTo());
 }
 
+llvm::Value* EmitFunctionContext::getMemoryIdFromOffset(llvm::Constant* memoryOffset)
+{
+#if LLVM_VERSION_MAJOR >= 15
+	return irBuilder.CreateUDiv(
+		llvm::ConstantExpr::getSub(
+			memoryOffset,
+			emitLiteralIptr(offsetof(Runtime::CompartmentRuntimeData, memories),
+							memoryOffset->getType())),
+		emitLiteralIptr(sizeof(Runtime::MemoryRuntimeData), memoryOffset->getType()),
+		"", true);
+#else
+	return llvm::ConstantExpr::getExactUDiv(
+		llvm::ConstantExpr::getSub(
+			memoryOffset,
+			emitLiteralIptr(offsetof(Runtime::CompartmentRuntimeData, memories),
+							memoryOffset->getType())),
+		emitLiteralIptr(sizeof(Runtime::MemoryRuntimeData), memoryOffset->getType()));
+#endif
+}
+
 //
 // Memory size operators
 // These just call out to wavmIntrinsics.growMemory/currentMemory, passing a pointer to the default

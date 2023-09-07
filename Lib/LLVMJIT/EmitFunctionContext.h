@@ -139,6 +139,12 @@ namespace WAVM { namespace LLVMJIT {
 											llvm::Type* memoryType,
 											Uptr memoryIndex);
 
+		// Get memory ID from offset in CompartmentRuntimeData.
+		llvm::Value* getMemoryIdFromOffset(llvm::Constant* memoryOffset);
+
+		// Get table ID from offset in CompartmentRuntimeData.
+		llvm::Value* getTableIdFromOffset(llvm::Constant* tableOffset);
+
 		// Traps a divide-by-zero
 		void trapDivideByZero(llvm::Value* divisor);
 

@@ -272,48 +272,6 @@ namespace WAVM { namespace LLVMJIT {
 		}
 	}
 
-	inline llvm::Constant* getMemoryIdFromOffset(llvm::Constant* memoryOffset)
-	{
-#if LLVM_VERSION_MAJOR >= 15
-		return llvm::ConstantExpr::get(
-			llvm::Instruction::UDiv,
-			llvm::ConstantExpr::getSub(
-				memoryOffset,
-				emitLiteralIptr(offsetof(Runtime::CompartmentRuntimeData, memories),
-								memoryOffset->getType())),
-			emitLiteralIptr(sizeof(Runtime::MemoryRuntimeData), memoryOffset->getType()),
-			llvm::PossiblyExactOperator::IsExact);
-#else
-		return llvm::ConstantExpr::getExactUDiv(
-			llvm::ConstantExpr::getSub(
-				memoryOffset,
-				emitLiteralIptr(offsetof(Runtime::CompartmentRuntimeData, memories),
-								memoryOffset->getType())),
-			emitLiteralIptr(sizeof(Runtime::MemoryRuntimeData), memoryOffset->getType()));
-#endif
-	}
-
-	inline llvm::Constant* getTableIdFromOffset(llvm::Constant* tableOffset)
-	{
-#if LLVM_VERSION_MAJOR >= 15
-		return llvm::ConstantExpr::get(
-			llvm::Instruction::UDiv,
-			llvm::ConstantExpr::getSub(
-				tableOffset,
-				emitLiteralIptr(offsetof(Runtime::CompartmentRuntimeData, tables),
-								tableOffset->getType())),
-			emitLiteralIptr(sizeof(Runtime::TableRuntimeData), tableOffset->getType()),
-			llvm::PossiblyExactOperator::IsExact);
-#else
-		return llvm::ConstantExpr::getExactUDiv(
-			llvm::ConstantExpr::getSub(
-				tableOffset,
-				emitLiteralIptr(offsetof(Runtime::CompartmentRuntimeData, tables),
-								tableOffset->getType())),
-			emitLiteralIptr(sizeof(Runtime::TableRuntimeData), tableOffset->getType()));
-#endif
-	}
-
 	inline llvm::Type* getIptrType(LLVMContext& llvmContext, U32 numPointerBytes)
 	{
 		switch(numPointerBytes)
