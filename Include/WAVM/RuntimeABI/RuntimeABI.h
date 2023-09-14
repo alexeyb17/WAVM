@@ -130,10 +130,18 @@ namespace WAVM { namespace Runtime {
 		Uptr typeId;
 		ExceptionType* type;
 		U8 isUserException;
+		const IR::UntaggedValue* arguments;
 		Platform::CallStack callStack;
-		IR::UntaggedValue arguments[1];
 
+		Exception(ExceptionType* type,
+				  const std::vector<IR::UntaggedValue>& arguments,
+				  Platform::CallStack&& callStack);
+		Exception(ExceptionType* type,
+				  const IR::UntaggedValue* arguments,
+				  Platform::CallStack&& callStack);
 		Exception();
+		~Exception();
+
 		Exception(const Exception&) = delete;
 		Exception(Exception&&) = delete;
 	};

@@ -43,8 +43,11 @@ namespace WAVM { namespace LLVMJIT {
 	// Code and state that is used for generating IR for both thunks and WASM functions.
 	struct EmitContext
 	{
+		using IRBuilder = llvm::IRBuilder<>;
+		using InsertPointGuard = IRBuilder::InsertPointGuard;
+
 		LLVMContext& llvmContext;
-		llvm::IRBuilder<> irBuilder;
+		IRBuilder irBuilder;
 
 		llvm::Value* contextPointerVariable;
 

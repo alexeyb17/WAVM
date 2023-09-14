@@ -52,7 +52,6 @@ namespace WAVM { namespace LLVMJIT {
 		llvm::Value* fpRoundingModeMetadata;
 		llvm::Value* fpExceptionMetadata;
 
-		llvm::Function* cxaAllocateExceptionFunction = nullptr;
 		llvm::Function* cxaThrowFunction = nullptr;
 		llvm::Function* cxaRethrowFunction = nullptr;
 		llvm::Function* cxaBeginCatchFunction = nullptr;

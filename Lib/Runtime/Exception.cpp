@@ -157,12 +157,72 @@ IR::TypeTuple Runtime::getExceptionTypeParameters(const ExceptionType* type)
 	return type->sig;
 }
 
+static std::atomic_int _exc_count;
+
+
 Exception::Exception()
 : typeId{}
 , type{}
 , isUserException{}
+, arguments{}
 , callStack{}
 {
+	++_exc_count;
+	printf("%p: NIL exception (count=%d)\n", this, _exc_count.load());
+}
+
+Exception::Exception(ExceptionType* type,
+					 const std::vector<IR::UntaggedValue>& arguments,
+					 Platform::CallStack&& callStack)
+: typeId(type->id)
+, type(type)
+, isUserException(type->compartment != nullptr)
+, arguments(nullptr)
+, callStack(std::move(callStack))
+{
+	++_exc_count;
+
+	const IR::TypeTuple& params = type->sig;
+printf("%p: USER exception type %ld nargs=%ld (count=%d)\n", this, typeId, params.size(), _exc_count.load());
+
+	if (params.size())
+	{
+		auto p = new IR::UntaggedValue[params.size()];
+		memcpy(p, arguments.data(), sizeof(IR::UntaggedValue) * params.size());
+		this->arguments = p;
+	}
+}
+
+Exception::Exception(ExceptionType* type,
+					 const IR::UntaggedValue* arguments,
+					 Platform::CallStack&& callStack)
+: typeId(type->id)
+, type(type)
+, isUserException(type->compartment != nullptr)
+, arguments(nullptr)
+, callStack(std::move(callStack))
+{
+	++_exc_count;
+
+	const IR::TypeTuple& params = type->sig;
+
+printf("%p: create exception type %ld nargs=%ld (count=%d)\n", this, typeId, params.size(), _exc_count.load());
+	if (params.size())
+	{
+		auto p = new IR::UntaggedValue[params.size()];
+		memcpy(p, arguments, sizeof(IR::UntaggedValue) * params.size());
+		this->arguments = p;
+	}
+}
+
+Exception::~Exception()
+{
+	--_exc_count;
+printf("%p: destroy exception type %ld args=%p (count=%d)\n", this, typeId, arguments, _exc_count.load());
+	if (arguments)
+	{
+		delete[] arguments;
+	}
 }
 
 ExceptionType* Runtime::getExceptionType(const Exception& exception) { return exception.type; }
@@ -180,7 +240,7 @@ const Platform::CallStack& Runtime::getExceptionCallStack(const Exception& excep
 
 std::string Runtime::describeException(const Exception& exception)
 {
-	std::string result = describeExceptionType(exception.type);
+	std::string result = exception.type ? describeExceptionType(exception.type) : "<null exception>";
 	if(exception.type == ExceptionTypes::outOfBoundsMemoryAccess)
 	{
 		Memory* memory = asMemoryNullable(exception.arguments[0].object);
@@ -246,47 +306,22 @@ std::string Runtime::describeException(const Exception& exception)
 										  const std::vector<IR::UntaggedValue>& arguments,
 										  Platform::CallStack&& callStack)
 {
-	auto getExceptionTypeInfo = [] () -> std::type_info*
-	{
-		try
-		{
-			throw Runtime::Exception();
-		}
-		catch(const Runtime::Exception&)
-		{
-			return __cxxabiv1::__cxa_current_exception_type();
-		}
-		return nullptr;
-	};
-	static std::type_info* exceptionTypeInfo = getExceptionTypeInfo();
-
+	WAVM_ASSERT(type);
 	WAVM_ASSERT(type->sig.size() == arguments.size());
 
-	const IR::TypeTuple& params = type->sig;
-
-	auto exceptionSize = offsetof(Exception, arguments) +
-						 (arguments.empty() ? 1u : arguments.size()) * sizeof(IR::UntaggedValue);
-	auto exception = static_cast<Exception*>(__cxxabiv1::__cxa_allocate_exception(exceptionSize));
-	exception->typeId = type->id;
-	exception->type = type;
-	exception->isUserException = type->compartment != nullptr;
-	exception->callStack = std::move(callStack);
-	if(params.size())
-	{
-		memcpy(exception->arguments, arguments.data(), sizeof(IR::UntaggedValue) * params.size());
-	}
-	__cxxabiv1::__cxa_throw(exception, exceptionTypeInfo, nullptr /*no cleanup required*/);
+	throw Exception(type, arguments, std::move(callStack));
 }
 
 WAVM_DEFINE_INTRINSIC_FUNCTION(wavmIntrinsicsException,
-							   "createException",
+							   "throwException",
 							   Uptr,
 							   intrinsicCreateException,
-							   Uptr exceptionPointer,
 							   Uptr exceptionTypeId,
 							   Uptr argsBits,
 							   U32 isUserException)
 {
+	printf("-----------------------------------------------\n");
+#if 1
 	ExceptionType* type;
 	{
 		Compartment* compartment = getCompartmentRuntimeData(contextRuntimeData)->compartment;
@@ -295,19 +330,10 @@ WAVM_DEFINE_INTRINSIC_FUNCTION(wavmIntrinsicsException,
 	}
 	auto args = reinterpret_cast<const IR::UntaggedValue*>(Uptr(argsBits));
 
-	auto exception = reinterpret_cast<Exception*>(exceptionPointer);
-	const IR::TypeTuple& params = type->sig;
-
-	exception->typeId = type->id;
-	exception->type = type;
-	exception->isUserException = type->compartment != nullptr;
-	exception->callStack = Platform::captureCallStack(1);
-	if(params.size())
-	{
-		memcpy(exception->arguments, args, sizeof(IR::UntaggedValue) * params.size());
-	}
-
-	return exceptionPointer;
+	throw Exception(type, args, Platform::captureCallStack(1));
+#else
+	throw 5;
+#endif
 }
 
 static bool isRuntimeException(const Platform::Signal& signal)

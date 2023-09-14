@@ -148,6 +148,16 @@
     )
   )
 
+  (func (export "double-catchless-try") (param i32) (result i32)
+    (try (result i32)
+      (do
+        (try (result i32)
+          (do (local.get 0) (call $throw-if))
+        )
+      )
+    )
+  )
+
 (; "tail calls" are unsupported ---
   (func $throw-void (throw $e0))
   (func (export "return-call-in-try-catch")
@@ -209,6 +219,8 @@
 
 (assert_return (invoke "catchless-try" (i32.const 0)) (i32.const 0))
 (assert_return (invoke "catchless-try" (i32.const 1)) (i32.const 1))
+(assert_return (invoke "double-catchless-try" (i32.const 0)) (i32.const 0))
+(assert_exception (invoke "double-catchless-try" (i32.const 1)))
 
 (; "tail calls" are unsupported ---
 (assert_exception (invoke "return-call-in-try-catch"))

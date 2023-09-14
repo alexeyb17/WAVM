@@ -1,6 +1,9 @@
 #ifndef _WIN32
 #include <cxxabi.h>
+#include <unwind.h>
 #endif
+
+#include <unistd.h>
 
 #include "WAVM/LLVMJIT/LLVMJIT.h"
 #include <utility>
@@ -34,6 +37,112 @@ using namespace WAVM::IR;
 using namespace WAVM::LLVMJIT;
 
 namespace LLVMRuntimeSymbols {
+
+	typedef uintptr_t _Unwind_Ptr;
+
+	struct _Unwind_Exception;
+
+	typedef unsigned _Unwind_Exception_Class __attribute__((__mode__(__DI__)));
+
+	typedef enum
+	{
+		_URC_NO_REASON = 0,
+		_URC_FOREIGN_EXCEPTION_CAUGHT = 1,
+		_URC_FATAL_PHASE2_ERROR = 2,
+		_URC_FATAL_PHASE1_ERROR = 3,
+		_URC_NORMAL_STOP = 4,
+		_URC_END_OF_STACK = 5,
+		_URC_HANDLER_FOUND = 6,
+		_URC_INSTALL_CONTEXT = 7,
+		_URC_CONTINUE_UNWIND = 8
+	} _Unwind_Reason_Code;
+
+
+	typedef void (*_Unwind_Exception_Cleanup_Fn) (_Unwind_Reason_Code,
+												 struct _Unwind_Exception *);
+
+	typedef unsigned _Unwind_Word __attribute__((__mode__(__unwind_word__)));
+
+	struct _Unwind_Exception
+	{
+		_Unwind_Exception_Class exception_class;
+		_Unwind_Exception_Cleanup_Fn exception_cleanup;
+
+#if !defined (__USING_SJLJ_EXCEPTIONS__) && defined (__SEH__)
+		_Unwind_Word private_[6];
+#else
+		_Unwind_Word private_1;
+		_Unwind_Word private_2;
+#endif
+
+		/* @@@ The IA-64 ABI says that this structure must be double-word aligned.
+		   Taking that literally does not make much sense generically.  Instead we
+		   provide the maximum alignment required by any type for the machine.  */
+	} __attribute__((__aligned__));
+
+	struct __cxa_exception
+	{
+		// Manage the exception object itself.
+		std::type_info *exceptionType;
+		void (_GLIBCXX_CDTOR_CALLABI *exceptionDestructor)(void *);
+
+			   // The C++ standard has entertaining rules wrt calling set_terminate
+			   // and set_unexpected in the middle of the exception cleanup process.
+		std::terminate_handler unexpectedHandler;
+		std::terminate_handler terminateHandler;
+
+			   // The caught exception stack threads through here.
+		__cxa_exception *nextException;
+
+			   // How many nested handlers have caught this exception.  A negated
+			   // value is a signal that this object has been rethrown.
+		int handlerCount;
+
+#ifdef __ARM_EABI_UNWINDER__
+		// Stack of exceptions in cleanups.
+		__cxa_exception* nextPropagatingException;
+
+			   // The number of active cleanup handlers for this exception.
+		int propagationCount;
+#else
+		// Cache parsed handler data from the personality routine Phase 1
+		// for Phase 2 and __cxa_call_unexpected.
+		int handlerSwitchValue;
+		const unsigned char *actionRecord;
+		const unsigned char *languageSpecificData;
+		_Unwind_Ptr catchTemp;
+		void *adjustedPtr;
+#endif
+
+			   // The generic exception header.  Must be last.
+		_Unwind_Exception unwindHeader;
+	};
+
+	struct __cxa_eh_globals
+	{
+		__cxa_exception *caughtExceptions;
+		unsigned int uncaughtExceptions;
+	};
+
+	void* cxa_begin_catch(void* p)
+	{
+		auto eh_globals = reinterpret_cast<__cxa_eh_globals*>(__cxxabiv1::__cxa_get_globals_fast());
+		printf("cxa_begin_catch %p\n", eh_globals);
+		auto rv = __cxxabiv1::__cxa_begin_catch(p);
+		return rv;
+	}
+	void cxa_end_catch()
+	{
+		auto eh_globals = reinterpret_cast<__cxa_eh_globals*>(__cxxabiv1::__cxa_get_globals_fast());
+		printf("cxa_end_catch %p\n", eh_globals);
+		__cxxabiv1::__cxa_end_catch();
+	}
+	void cxa_rethrow()
+	{
+		auto eh_globals = reinterpret_cast<__cxa_eh_globals*>(__cxxabiv1::__cxa_get_globals_fast());
+		printf("cxa_rethrow %p\n", eh_globals);
+		__cxxabiv1::__cxa_rethrow();
+	}
 #ifdef _WIN32
 	// the LLVM X86 code generator calls __chkstk when allocating more than 4KB of stack space
 	extern "C" void __chkstk();
@@ -63,11 +172,10 @@ namespace LLVMRuntimeSymbols {
 		{"wavm_probe_stack", (void*)&wavm_probe_stack},
 #endif
 		{"__gxx_personality_v0", (void*)&__gxx_personality_v0},
-		{"__cxa_allocate_exception", (void*)&__cxxabiv1::__cxa_allocate_exception},
-		{"__cxa_throw", (void*)&__cxxabiv1::__cxa_throw},
-		{"__cxa_rethrow", (void*)&__cxxabiv1::__cxa_rethrow},
-		{"__cxa_begin_catch", (void*)&__cxxabiv1::__cxa_begin_catch},
-		{"__cxa_end_catch", (void*)&__cxxabiv1::__cxa_end_catch},
+		{"__cxa_rethrow", (void*)&cxa_rethrow},
+		{"__cxa_begin_catch", (void*)&cxa_begin_catch},
+		{"__cxa_end_catch", (void*)&cxa_end_catch},
+		{"_Unwind_Resume", (void*)&_Unwind_Resume},
 #endif
 	};
 }

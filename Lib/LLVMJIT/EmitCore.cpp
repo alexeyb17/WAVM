@@ -143,7 +143,8 @@ void EmitFunctionContext::end(NoImm)
 	WAVM_ASSERT(controlStack.size());
 	ControlContext& currentContext = controlStack.back();
 
-	if (currentContext.type == ControlContext::Type::catch_
+	if (currentContext.type == ControlContext::Type::try_
+	   || currentContext.type == ControlContext::Type::catch_
 	   || currentContext.type == ControlContext::Type::catch_all)
 	{
 		endTryCatch();
@@ -294,6 +295,8 @@ void EmitFunctionContext::br_table(BranchTableImm imm)
 }
 void EmitFunctionContext::return_(NoImm)
 {
+	endAllCatches();
+
 	// Pop the branch target operands from the stack and add them to the target's incoming value
 	// PHIs.
 	for(Iptr argIndex = functionType.results().size() - 1; argIndex >= 0; --argIndex)

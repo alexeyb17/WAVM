@@ -37,12 +37,17 @@ namespace WAVM { namespace LLVMJIT {
 			// Only used for Windows SEH.
 			llvm::CatchSwitchInst* catchSwitchInst = nullptr;
 
-			// Only used for non-Windows exceptions.
-			llvm::LandingPadInst* landingPadInst = nullptr;
+			// Multiple landing pads may result in exception pointer value. To be PHIed.
+			struct ExceptionPointer
+			{
+				llvm::Value* value = nullptr;
+				llvm::BasicBlock* block = nullptr;
+			};
+			std::vector<ExceptionPointer> exceptionPointers;
 
-			// Used for all platforms.
-			llvm::Value* exceptionPointer = nullptr;
+			// Catch chain values, initialized with startCatch().
 			llvm::BasicBlock* nextHandlerBlock = nullptr;
+			llvm::Value* exceptionPointer = nullptr;
 			llvm::Value* exceptionTypeId = nullptr;
 		};
 
@@ -294,8 +299,19 @@ namespace WAVM { namespace LLVMJIT {
 		void endTryCatch();
 		void exitCatch();
 
+		// Get innermost `try` control context.
+		ControlContext* getInnermostTry();
+
 		// Get target block for stack unwind.
 		llvm::BasicBlock* getInnermostUnwindToBlock();
+
+		// End try body. If exceptions are possible from the body then:
+		// - Initialize nextHandlerBlock, exceptionPointer and exceptionTypeId in catchContext.
+		// - Set the insertion point to nextHandlerBlock.
+		void finalizeLandingPads(CatchContext& catchContext);
+
+		// End all active catch handlers, called by `return`.
+		void endAllCatches();
 
 		// Ahead lookup of how current `try` is closed.
 		// Called on immediately before creating try block.
