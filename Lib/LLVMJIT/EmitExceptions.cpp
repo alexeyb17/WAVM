@@ -50,6 +50,21 @@ static llvm::Function* getCXARethrowFunction(EmitModuleContext& moduleContext)
 	return rv;
 }
 
+llvm::Function* getCXAGetExceptionPtrFunction(EmitModuleContext& moduleContext)
+{
+	auto& rv = moduleContext.cxaGetExceptionPtrFunction;
+	if(!rv)
+	{
+		LLVMContext& llvmContext = moduleContext.llvmContext;
+		rv = llvm::Function::Create(
+			llvm::FunctionType::get(llvmContext.i8PtrType, {llvmContext.i8PtrType}, false),
+			llvm::GlobalValue::LinkageTypes::ExternalLinkage,
+			"__cxa_get_exception_ptr",
+			moduleContext.llvmModule);
+	}
+	return rv;
+}
+
 static llvm::Function* getCXABeginCatchFunction(EmitModuleContext& moduleContext)
 {
 	auto& rv = moduleContext.cxaBeginCatchFunction;
@@ -80,6 +95,19 @@ static llvm::Function* getCXAEndCatchFunction(EmitModuleContext& moduleContext)
 	return rv;
 }
 
+llvm::BasicBlock* EmitFunctionContext::getUnreachableBlock()
+{
+	auto& block = unreachableBlock;
+	if (!block)
+	{
+		InsertPointGuard savedIp(irBuilder);
+		block = llvm::BasicBlock::Create(llvmContext, "unreachable", function);
+		irBuilder.SetInsertPoint(block);
+		irBuilder.CreateUnreachable();
+	}
+	return block;
+}
+
 void EmitFunctionContext::endTryCatch()
 {
 	ControlContext& currentContext = controlStack.back();
@@ -88,8 +116,6 @@ void EmitFunctionContext::endTryCatch()
 				|| currentContext.type == ControlContext::Type::catch_all);
 
 	CatchContext& catchContext = currentContext.catchContext;
-
-	InsertPointGuard saved(irBuilder);
 
 	if (currentContext.type == ControlContext::Type::catch_
 	   || currentContext.type == ControlContext::Type::catch_all)
@@ -114,31 +140,19 @@ void EmitFunctionContext::endTryCatch()
 	// handler type ID tests by joining outer catch handler chain or by rethrowing the exception
 	// to the caller.
 
-	auto outerTry = getInnermostTry();
-	if (outerTry)
+	auto propagateTo = getInnermostTry();
+	if (propagateTo.controlContext)
 	{
 		// redirect to outer try block
-		auto redirectBlock = catchContext.nextHandlerBlock;
-		outerTry->catchContext.exceptionPointers.push_back(
-			CatchContext::ExceptionPointer{catchContext.exceptionPointer, redirectBlock});
+		propagateTo.controlContext->catchContext.exceptionPointers.push_back(
+			CatchContext::ExceptionPointer{catchContext.exceptionPointer, catchContext.nextHandlerBlock});
 	}
 	else
 	{
-		// Redirect to caller: rethrow -> cleanup(__cxa_end_catch)-> resume unwind
-		auto unreachableBlock = llvm::BasicBlock::Create(llvmContext, "unreachable", function);
-		irBuilder.SetInsertPoint(unreachableBlock);
-		irBuilder.CreateUnreachable();
-
-		auto landingPadBlock = llvm::BasicBlock::Create(llvmContext, "rethrowCleanup", function);
-		irBuilder.SetInsertPoint(landingPadBlock);
-		auto cleanupLandingPad = irBuilder.CreateLandingPad(
-			llvm::StructType::get(llvmContext, {llvmContext.i8PtrType, llvmContext.i32Type}), 1);
-		cleanupLandingPad->setCleanup(true);
-		irBuilder.CreateCall(getCXAEndCatchFunction(moduleContext));
-		irBuilder.CreateResume(cleanupLandingPad);
-
+		InsertPointGuard savedIp(irBuilder);
 		irBuilder.SetInsertPoint(catchContext.nextHandlerBlock);
-		irBuilder.CreateInvoke(getCXARethrowFunction(moduleContext), unreachableBlock, landingPadBlock);
+		irBuilder.CreateInvoke(getCXARethrowFunction(moduleContext), getUnreachableBlock(),
+							   createUnwindResumePad(propagateTo.catchCount));
 	}
 }
 
@@ -154,45 +168,93 @@ void EmitFunctionContext::exitCatch()
 	}
 }
 
-EmitFunctionContext::ControlContext* EmitFunctionContext::getInnermostTry()
+EmitFunctionContext::UnwindPath EmitFunctionContext::getInnermostTry()
 {
+	UnwindPath rv;
 	for (auto it = controlStack.rbegin(); it != controlStack.rend(); ++it)
 	{
 		if (it->type == ControlContext::Type::try_)
 		{
-			return &(*it);
+			rv.controlContext = &(*it);
+			return rv;
+		}
+		else if (it->type == ControlContext::Type::catch_ || it->type == ControlContext::Type::catch_all)
+		{
+			++rv.catchCount;
 		}
 	}
-	return nullptr;
+	return rv;
 }
 
 llvm::BasicBlock* EmitFunctionContext::getInnermostUnwindToBlock()
 {
-	auto controlContext = getInnermostTry();
-	if (!controlContext)
+	auto target = getInnermostTry();
+	if (target.controlContext == nullptr && target.catchCount == 0)
 	{
+		// no handlers in this function and no inner catches
 		return nullptr;
 	}
-	auto& catchContext = controlContext->catchContext;
+	if (target.controlContext == nullptr)
+	{
+		// no handlers, but have to cleanup active catches
+		return createUnwindResumePad(target.catchCount);
+	}
+	else
+	{
+		return createCatchPad(target.controlContext->catchContext, target.catchCount);
+	}
+}
 
+llvm::BasicBlock* EmitFunctionContext::createUnwindResumePad(Uptr numActiveCatches)
+{
+	WAVM_ASSERT(numActiveCatches > 0);
+	auto& landingPadBlock = unwindResumePads[numActiveCatches];
+
+	if (landingPadBlock)
+	{
+		return landingPadBlock;
+	}
+	InsertPointGuard savedIp(irBuilder);
+
+	landingPadBlock = llvm::BasicBlock::Create(llvmContext, "cleanupAndResume", function);
+	irBuilder.SetInsertPoint(landingPadBlock);
+	auto cleanupLandingPad = irBuilder.CreateLandingPad(
+		llvm::StructType::get(llvmContext, {llvmContext.i8PtrType, llvmContext.i32Type}), 1);
+	cleanupLandingPad->setCleanup(true);
+	for (Uptr i = 0; i != numActiveCatches; ++i)
+	{
+		irBuilder.CreateCall(getCXAEndCatchFunction(moduleContext));
+	}
+	irBuilder.CreateResume(cleanupLandingPad);
+	return landingPadBlock;
+
+}
+
+llvm::BasicBlock* EmitFunctionContext::createCatchPad(CatchContext& catchContext, Uptr numActiveCatches)
+{
 	// Create `landingpad` if not yet.
-	auto& landingPadBlock = catchContext.unwindToBlock;
+	auto& landingPadBlock = catchContext.unwindToBlock[numActiveCatches];
 	if (!landingPadBlock)
 	{
-		auto originalInsertBlock = irBuilder.GetInsertBlock();
+		InsertPointGuard savedIp(irBuilder);
+
 		landingPadBlock = llvm::BasicBlock::Create(llvmContext, "landingPad", function);
 		irBuilder.SetInsertPoint(landingPadBlock);
 		auto landingPadInst = irBuilder.CreateLandingPad(
 			llvm::StructType::get(llvmContext, {llvmContext.i8PtrType, llvmContext.i32Type}), 1);
 		landingPadInst->addClause(moduleContext.runtimeExceptionTypeInfo);
 
+			   // Cleanup inner catches before starting to process caught exception.
+		for (Uptr i = 0; i != numActiveCatches; ++i)
+		{
+			irBuilder.CreateCall(getCXAEndCatchFunction(moduleContext));
+		}
 		// Call __cxa_begin_catch to get the exception pointer.
 		auto exceptionPointer
 			= irBuilder.CreateCall(getCXABeginCatchFunction(moduleContext),
 								   {irBuilder.CreateExtractValue(landingPadInst, {0})});
 		catchContext.exceptionPointers.push_back(
 			CatchContext::ExceptionPointer{exceptionPointer, landingPadBlock});
-		irBuilder.SetInsertPoint(originalInsertBlock);
 	}
 	return landingPadBlock;
 }
@@ -201,7 +263,7 @@ void EmitFunctionContext::finalizeLandingPads(CatchContext& catchContext)
 {
 	WAVM_ASSERT(catchContext.nextHandlerBlock == nullptr);
 
-	InsertPointGuard saved(irBuilder);
+	InsertPointGuard savedIp(irBuilder);
 
 	if (catchContext.exceptionPointers.empty())
 	{
@@ -501,80 +563,33 @@ void EmitFunctionContext::throw_(ExceptionTypeImm imm)
 void EmitFunctionContext::rethrow(RethrowImm imm)
 {
 	WAVM_ASSERT(imm.catchDepth < controlStack.size());
-	auto& controlContext = controlStack[controlStack.size() - imm.catchDepth - 1];
+	auto targetDepth = controlStack.size() - imm.catchDepth - 1;
+	auto& controlContext = controlStack[targetDepth];
 	WAVM_ASSERT(controlContext.type == ControlContext::Type::catch_
 				|| controlContext.type == ControlContext::Type::catch_all);
 
+	auto target = getInnermostTry();
+
 	// End all innermost catch blocks before rethrowing exception pointed by `rethrow imm`.
-	for (Uptr depth = 0; depth != imm.catchDepth; ++depth)
+	for (Uptr depth = controlStack.size() - 1; depth > targetDepth; --depth)
 	{
-		auto& innerContext = controlStack[controlStack.size() - depth - 1];
+		auto& innerContext = controlStack[depth];
 		if (innerContext.type == ControlContext::Type::catch_
 		   || innerContext.type == ControlContext::Type::catch_all)
 		{
 			irBuilder.CreateCall(getCXAEndCatchFunction(moduleContext));
+			WAVM_ASSERT(target.catchCount > 0);
+			--target.catchCount;
 		}
 	}
-	// TODO: cleanup after rethrow
-	// Rethrow exception from target catch.
-	emitCallOrInvoke(getCXARethrowFunction(moduleContext), {}, FunctionType({}, {}, CallingConvention::c));
 
-	irBuilder.CreateUnreachable();
+	auto landingPad = target.controlContext ? createCatchPad(target.controlContext->catchContext, target.catchCount)
+											: createUnwindResumePad(target.catchCount);
+	irBuilder.CreateInvoke(getCXARethrowFunction(moduleContext), getUnreachableBlock(), landingPad);
 	enterUnreachable();
 }
 
 void EmitFunctionContext::delegate(DelegateImm imm)
 {
 	end(NoImm{});
-}
-
-int EmitFunctionContext::lookupClosingDelegate()
-{
-	struct Visitor
-	{
-		typedef void Result;
-
-#define VISIT_OP(opcode, name, nameString, Imm, ...)                                               \
-		void name(Imm imm) {}
-		WAVM_ENUM_NONCONTROL_OPERATORS(VISIT_OP)
-		VISIT_OP(_, unknown, "unknown", Opcode)
-#undef VISIT_OP
-
-		void block(ControlStructureImm) { ++controlDepth; }
-		void loop(ControlStructureImm) { ++controlDepth; }
-		void if_(ControlStructureImm) { ++controlDepth; }
-
-		void else_(NoImm imm) {}
-		void end(NoImm imm) { --controlDepth; }
-
-		void try_(ControlStructureImm imm) { ++controlDepth; }
-		void catch_(ExceptionTypeImm imm)
-		{
-			if (controlDepth == 1) { delegateDepth = -1; }
-		}
-		void catch_all(NoImm imm)
-		{
-			if (controlDepth == 1) { delegateDepth = -1; }
-		}
-		void delegate(DelegateImm imm)
-		{
-			if (--controlDepth == 0) { delegateDepth = static_cast<int>(imm.delegateDepth); }
-		}
-
-		Uptr controlDepth = 1;
-		int delegateDepth = 0;
-	};
-
-	auto aheadDecoder = decoder;
-	Visitor v;
-	while (aheadDecoder)
-	{
-		aheadDecoder.decodeOp(v);
-		if (v.controlDepth == 0)
-		{
-			return v.delegateDepth;
-		}
-	}
-	// closing instruction is not found, treat as rethrow to upper level
-	return 0;
 }

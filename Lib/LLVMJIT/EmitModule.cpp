@@ -21,6 +21,9 @@ PUSH_DISABLE_WARNINGS_FOR_LLVM_HEADERS
 #include <llvm/IR/Metadata.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Type.h>
+
+#include "llvm/Support/raw_os_ostream.h"
+#include <iostream>
 POP_DISABLE_WARNINGS_FOR_LLVM_HEADERS
 
 namespace llvm {
@@ -289,4 +292,6 @@ void LLVMJIT::emitModule(const IR::Module& irModule,
 	moduleContext.diBuilder.finalize();
 
 	Timing::logRatePerSecond("Emitted LLVM IR", emitTimer, (F64)outLLVMModule.size(), "functions");
+	llvm::raw_os_ostream os(std::cout);
+	outLLVMModule.print(os, nullptr);
 }

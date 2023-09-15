@@ -1522,6 +1522,13 @@ static void processCommands(TestScriptState& state,
 						   "unexpected exception: %s",
 						   describeException(exception).c_str());
 			});
+
+		if (std::current_exception())
+		{
+			testErrorf(state,
+					   command->locus,
+					   "unfinished exception handler");
+		}
 	}
 }
 

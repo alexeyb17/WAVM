@@ -52,6 +52,28 @@
     )
   )
 
+  (func (export "rethrow-nested-catch") (param i32) (result i32)
+    (try (result i32)
+      (do
+        (try (result i32)
+          (do (throw $e1))
+          (catch $e1
+            (try (result i32)
+              (do (throw $e0))
+              (catch $e0
+                (if (i32.eq (local.get 0) (i32.const 0)) (then (rethrow 1)))
+                (if (i32.eq (local.get 0) (i32.const 1)) (then (rethrow 2)))
+                (i32.const 23)
+              )
+            )
+          )
+        )
+      )
+      (catch $e0 (i32.const 4))
+      (catch $e1 (i32.const 5))
+    )
+  )
+
   (func (export "rethrow-recatch") (param i32) (result i32)
     (try (result i32)
       (do (throw $e0))
@@ -59,6 +81,27 @@
         (try (result i32)
          (do (if (i32.eqz (local.get 0)) (then (rethrow 2))) (i32.const 42))
          (catch $e0 (i32.const 23))
+        )
+      )
+    )
+  )
+
+  (func (export "rethrow-recatch-nested") (param i32) (result i32)
+    (try (result i32)
+      (do (throw $e0))
+      (catch $e0
+        (try (result i32)
+          (do
+            (try
+              (do (throw $e1)
+              )
+              (catch $e1
+                (if (i32.eqz (local.get 0)) (then (rethrow 3)))
+              )
+            )
+            (i32.const 42)
+          )
+          (catch $e0 (i32.const 23))
         )
       )
     )
@@ -85,8 +128,15 @@
 (assert_exception (invoke "rethrow-nested" (i32.const 1)))
 (assert_return (invoke "rethrow-nested" (i32.const 2)) (i32.const 23))
 
+(assert_return (invoke "rethrow-nested-catch" (i32.const 0)) (i32.const 4))
+(assert_return (invoke "rethrow-nested-catch" (i32.const 1)) (i32.const 5))
+(assert_return (invoke "rethrow-nested-catch" (i32.const 2)) (i32.const 23))
+
 (assert_return (invoke "rethrow-recatch" (i32.const 0)) (i32.const 23))
 (assert_return (invoke "rethrow-recatch" (i32.const 1)) (i32.const 42))
+
+(assert_return (invoke "rethrow-recatch-nested" (i32.const 0)) (i32.const 23))
+(assert_return (invoke "rethrow-recatch-nested" (i32.const 1)) (i32.const 42))
 
 (assert_exception (invoke "rethrow-stack-polymorphism"))
 

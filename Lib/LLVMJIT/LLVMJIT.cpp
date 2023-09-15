@@ -124,23 +124,46 @@ namespace LLVMRuntimeSymbols {
 		unsigned int uncaughtExceptions;
 	};
 
+	void print_caught(__cxa_exception* ch)
+	{
+		printf("  caught exceptions:\n");
+		for (; ch; ch = ch->nextException)
+		{
+			printf("    %p handlers=%d\n", ch, ch->handlerCount);
+		}
+	}
+
+	void* cxa_get_exception_ptr(void* p)
+	{
+		auto eh_globals = reinterpret_cast<__cxa_eh_globals*>(__cxxabiv1::__cxa_get_globals_fast());
+		printf("cxa_get_exception_ptr %p\n", eh_globals);
+		auto rv = __cxxabiv1::__cxa_get_exception_ptr(p);
+		return rv;
+	}
 	void* cxa_begin_catch(void* p)
 	{
 		auto eh_globals = reinterpret_cast<__cxa_eh_globals*>(__cxxabiv1::__cxa_get_globals_fast());
 		printf("cxa_begin_catch %p\n", eh_globals);
+		print_caught(eh_globals->caughtExceptions);
 		auto rv = __cxxabiv1::__cxa_begin_catch(p);
+		printf("/cxa_begin_catch %p\n", eh_globals);
+		print_caught(eh_globals->caughtExceptions);
 		return rv;
 	}
 	void cxa_end_catch()
 	{
 		auto eh_globals = reinterpret_cast<__cxa_eh_globals*>(__cxxabiv1::__cxa_get_globals_fast());
 		printf("cxa_end_catch %p\n", eh_globals);
+		print_caught(eh_globals->caughtExceptions);
 		__cxxabiv1::__cxa_end_catch();
+		printf("/cxa_end_catch %p\n", eh_globals);
+		print_caught(eh_globals->caughtExceptions);
 	}
 	void cxa_rethrow()
 	{
 		auto eh_globals = reinterpret_cast<__cxa_eh_globals*>(__cxxabiv1::__cxa_get_globals_fast());
 		printf("cxa_rethrow %p\n", eh_globals);
+		print_caught(eh_globals->caughtExceptions);
 		__cxxabiv1::__cxa_rethrow();
 	}
 #ifdef _WIN32
@@ -173,6 +196,7 @@ namespace LLVMRuntimeSymbols {
 #endif
 		{"__gxx_personality_v0", (void*)&__gxx_personality_v0},
 		{"__cxa_rethrow", (void*)&cxa_rethrow},
+		{"__cxa_get_exception_ptr", (void*)&cxa_get_exception_ptr},
 		{"__cxa_begin_catch", (void*)&cxa_begin_catch},
 		{"__cxa_end_catch", (void*)&cxa_end_catch},
 		{"_Unwind_Resume", (void*)&_Unwind_Resume},

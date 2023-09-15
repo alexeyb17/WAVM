@@ -29,10 +29,17 @@ namespace WAVM { namespace LLVMJIT {
 
 		llvm::DISubprogram* diFunction;
 
+		// Unreachable block, one per function.
+		llvm::BasicBlock* unreachableBlock = nullptr;
+
+		// Cleanup landing pad blocks.
+		// Indexed by number of catches to cleanup.
+		std::map<Uptr, llvm::BasicBlock*> unwindResumePads;
+
 		struct CatchContext
 		{
-			// Unwind target.
-			llvm::BasicBlock* unwindToBlock = nullptr;
+			// Unwind target. Indexed by number of inner catch handlers to cleanup.
+			std::map<Uptr, llvm::BasicBlock*> unwindToBlock;
 
 			// Only used for Windows SEH.
 			llvm::CatchSwitchInst* catchSwitchInst = nullptr;
@@ -297,13 +304,31 @@ namespace WAVM { namespace LLVMJIT {
 		void trapIfMisalignedAtomic(llvm::Value* address, U32 naturalAlignmentLog2);
 
 		void endTryCatch();
+
+		// Finish `catch` block with __cxa_end_catch
 		void exitCatch();
 
+		// Target `try` control context for (re)throw.
+		struct UnwindPath
+		{
+			// `try` control context. Zero if not exist.
+			ControlContext* controlContext = nullptr;
+			// Number of active catch handlers (`catch` contexts) before target `try`.
+			Uptr catchCount = 0;
+		};
+
 		// Get innermost `try` control context.
-		ControlContext* getInnermostTry();
+		UnwindPath getInnermostTry();
 
 		// Get target block for stack unwind.
 		llvm::BasicBlock* getInnermostUnwindToBlock();
+
+		// Create landing pad block that cleanups active catch handlers and resumes unwinding.
+		llvm::BasicBlock* createUnwindResumePad(Uptr numActiveCatches);
+
+		// Create catching landing pad block for the specified context.
+		// `numActiveCatches` are cleaned before entering catch.
+		llvm::BasicBlock* createCatchPad(CatchContext& catchContext, Uptr numActiveCatches);
 
 		// End try body. If exceptions are possible from the body then:
 		// - Initialize nextHandlerBlock, exceptionPointer and exceptionTypeId in catchContext.
@@ -313,14 +338,8 @@ namespace WAVM { namespace LLVMJIT {
 		// End all active catch handlers, called by `return`.
 		void endAllCatches();
 
-		// Ahead lookup of how current `try` is closed.
-		// Called on immediately before creating try block.
-		//
-		// Returns:
-		// -1 if try is closed by `catch`/`catch_all`;
-		// delegateImm if closed by `delegate`;
-		// 0 if closed by `end`.
-		int lookupClosingDelegate();
+		// Get 'unreachable' block
+		llvm::BasicBlock* getUnreachableBlock();
 
 		// Overload that automatically provides unwind target.
 		ValueVector emitRuntimeIntrinsic(const char* intrinsicName,
