@@ -35,6 +35,22 @@ using namespace WAVM::IR;
 using namespace WAVM::LLVMJIT;
 using namespace WAVM::Runtime;
 
+// Essential rules for Itanium C++ ABI exception handling (https://itanium-cxx-abi.github.io/cxx-abi/abi-eh.html)
+//
+// 1. `cleanup` landing pad must call _Unwind_Resume at the end of.
+// 2. `catch` landing pad must call __cxa_begin_catch().
+// 3. Each __cxa_begin_catch() must be closed with __cxa_end_catch(). So, exception object can be
+//    destroyed at the end of handling.
+// 4. Exception can be rethrowm with __cxa_rethrow() after __cxa_begin_catch() call. Still
+//    __cxa_end_catch() must be called in the destintation landing pad for rethrow invoke.
+// 5. __cxa_end_catch() called after __cxa_rethrow() doesn't destroy exception, just removes
+//    it from list of caught exceptions. So, __cxa_begin_catch() can be called again to start new handler.
+// 6. Propagating exception to the caller can be done in following ways:
+//    a) When no try/catch blocks exist at all: doesn't use `invoke` at all.
+//    b) When inside catch handler(s) but not in any `try` block: use `cleanup` landing pad that ends
+//       active catch handlers and call _Unwind_Resume.
+
+
 static llvm::Function* getCXARethrowFunction(EmitModuleContext& moduleContext)
 {
 	auto& rv = moduleContext.cxaRethrowFunction;
