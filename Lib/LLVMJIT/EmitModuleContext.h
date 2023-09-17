@@ -54,7 +54,6 @@ namespace WAVM { namespace LLVMJIT {
 
 		llvm::Function* cxaThrowFunction = nullptr;
 		llvm::Function* cxaRethrowFunction = nullptr;
-		llvm::Function* cxaGetExceptionPtrFunction = nullptr;
 		llvm::Function* cxaBeginCatchFunction = nullptr;
 		llvm::Function* cxaEndCatchFunction = nullptr;
 		llvm::Constant* runtimeExceptionTypeInfo = nullptr;

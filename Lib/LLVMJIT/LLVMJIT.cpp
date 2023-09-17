@@ -133,13 +133,6 @@ namespace LLVMRuntimeSymbols {
 		}
 	}
 
-	void* cxa_get_exception_ptr(void* p)
-	{
-		auto eh_globals = reinterpret_cast<__cxa_eh_globals*>(__cxxabiv1::__cxa_get_globals_fast());
-		printf("cxa_get_exception_ptr %p\n", eh_globals);
-		auto rv = __cxxabiv1::__cxa_get_exception_ptr(p);
-		return rv;
-	}
 	void* cxa_begin_catch(void* p)
 	{
 		auto eh_globals = reinterpret_cast<__cxa_eh_globals*>(__cxxabiv1::__cxa_get_globals_fast());
@@ -196,7 +189,6 @@ namespace LLVMRuntimeSymbols {
 #endif
 		{"__gxx_personality_v0", (void*)&__gxx_personality_v0},
 		{"__cxa_rethrow", (void*)&cxa_rethrow},
-		{"__cxa_get_exception_ptr", (void*)&cxa_get_exception_ptr},
 		{"__cxa_begin_catch", (void*)&cxa_begin_catch},
 		{"__cxa_end_catch", (void*)&cxa_end_catch},
 		{"_Unwind_Resume", (void*)&_Unwind_Resume},

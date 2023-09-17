@@ -66,21 +66,6 @@ static llvm::Function* getCXARethrowFunction(EmitModuleContext& moduleContext)
 	return rv;
 }
 
-llvm::Function* getCXAGetExceptionPtrFunction(EmitModuleContext& moduleContext)
-{
-	auto& rv = moduleContext.cxaGetExceptionPtrFunction;
-	if(!rv)
-	{
-		LLVMContext& llvmContext = moduleContext.llvmContext;
-		rv = llvm::Function::Create(
-			llvm::FunctionType::get(llvmContext.i8PtrType, {llvmContext.i8PtrType}, false),
-			llvm::GlobalValue::LinkageTypes::ExternalLinkage,
-			"__cxa_get_exception_ptr",
-			moduleContext.llvmModule);
-	}
-	return rv;
-}
-
 static llvm::Function* getCXABeginCatchFunction(EmitModuleContext& moduleContext)
 {
 	auto& rv = moduleContext.cxaBeginCatchFunction;
@@ -153,7 +138,7 @@ void EmitFunctionContext::endTryCatch()
 	}
 
 	// If an end instruction terminates a sequence of catch clauses, terminate the chain of
-	// handler type ID tests by joining outer catch handler chain or by rethrowing the exception
+	// handler type ID tests by joining outer catch handlers chain or by rethrowing the exception
 	// to the caller.
 
 	auto propagateTo = getInnermostTry();
@@ -184,12 +169,12 @@ void EmitFunctionContext::exitCatch()
 	}
 }
 
-EmitFunctionContext::UnwindPath EmitFunctionContext::getInnermostTry()
+EmitFunctionContext::UnwindPath EmitFunctionContext::getInnermostTry(Uptr skipInner)
 {
 	UnwindPath rv;
 	for (auto it = controlStack.rbegin(); it != controlStack.rend(); ++it)
 	{
-		if (it->type == ControlContext::Type::try_)
+		if (it->type == ControlContext::Type::try_ && skipInner == 0)
 		{
 			rv.controlContext = &(*it);
 			return rv;
@@ -197,6 +182,10 @@ EmitFunctionContext::UnwindPath EmitFunctionContext::getInnermostTry()
 		else if (it->type == ControlContext::Type::catch_ || it->type == ControlContext::Type::catch_all)
 		{
 			++rv.catchCount;
+		}
+		if (skipInner > 0)
+		{
+			--skipInner;
 		}
 	}
 	return rv;
@@ -332,9 +321,6 @@ void EmitFunctionContext::endAllCatches()
 
 void EmitFunctionContext::try_(ControlStructureImm imm)
 {
-	auto originalInsertBlock = irBuilder.GetInsertBlock();
-
-	CatchContext catchContext;
 	if (moduleContext.useWindowsSEH)
 	{
 #if 0
@@ -385,15 +371,9 @@ void EmitFunctionContext::try_(ControlStructureImm imm)
 		catchContext.nextHandlerBlock = catchBlock;
 		catchContext.exceptionTypeId = exceptionTypeId;
 #else
-		WAVM_ASSERT(false && "SEH not implemented");
+		WAVM_ASSERT(false && "SEH not implemented yet");
 #endif
 	}
-	else
-	{
-		// CatchContext is filled on-demand
-	}
-
-	irBuilder.SetInsertPoint(originalInsertBlock);
 
 	// Create an end try+phi for the try result.
 	FunctionType blockType = resolveBlockType(irModule, imm.type);
@@ -405,8 +385,9 @@ void EmitFunctionContext::try_(ControlStructureImm imm)
 	popMultiple(tryArgs, blockType.params().size());
 
 	// Push a control context that ends at the end block/phi.
+	// Note: `catchContext` is default-initialized here. It's filled on demand when
+	// function invocations and catch blocks are created.
 	pushControlStack(ControlContext::Type::try_, blockType.results(), endBlock, endPHIs);
-	controlStack.back().catchContext = catchContext;
 
 	// Push a branch target for the end block/phi.
 	pushBranchTarget(blockType.results(), endBlock, endPHIs);
@@ -445,7 +426,7 @@ void EmitFunctionContext::catch_(ExceptionTypeImm imm)
 
 	if (!catchContext.nextHandlerBlock)
 	{
-		// No exceptions are expected - this catch is never reached.
+		// No exceptions are expected from this try block - this catch handler is never reached.
 		irBuilder.SetInsertPoint(llvm::BasicBlock::Create(llvmContext, "unreachableCatch", function));
 		// Still we have to push fake exception arguments on the stack to make rest of code generator happy.
 		for(Uptr argumentIndex = 0; argumentIndex < exceptionParams.size(); ++argumentIndex)
@@ -586,7 +567,7 @@ void EmitFunctionContext::rethrow(RethrowImm imm)
 
 	auto target = getInnermostTry();
 
-	// End all innermost catch blocks before rethrowing exception pointed by `rethrow imm`.
+	// End all catch blocks that are inner relative to caught exception pointed by `rethrow imm`.
 	for (Uptr depth = controlStack.size() - 1; depth > targetDepth; --depth)
 	{
 		auto& innerContext = controlStack[depth];
@@ -607,5 +588,31 @@ void EmitFunctionContext::rethrow(RethrowImm imm)
 
 void EmitFunctionContext::delegate(DelegateImm imm)
 {
+	WAVM_ASSERT(controlStack.size() >= imm.delegateDepth + 2);
+	auto& controlContext = controlStack.back();
+	WAVM_ASSERT(controlContext.type == ControlContext::Type::try_);
+	auto& catchContext = controlContext.catchContext;
+
+	finalizeLandingPads(catchContext);
+
+	if (catchContext.nextHandlerBlock)
+	{
+		// Exceptions maybe thown from this block. Find innermost `try` context pointed by
+		// delegateDepth and rethrow to it.
+		InsertPointGuard savedIp(irBuilder);
+
+		// mimic as we in catch chain to account __cxa_begin_catch in our landing pad
+		controlContext.type = ControlContext::Type::catch_;
+		auto target = getInnermostTry(imm.delegateDepth + 1);
+
+		auto landingPad = target.controlContext ? createCatchPad(target.controlContext->catchContext, target.catchCount)
+												: createUnwindResumePad(target.catchCount);
+		irBuilder.SetInsertPoint(catchContext.nextHandlerBlock);
+		irBuilder.CreateInvoke(getCXARethrowFunction(moduleContext), getUnreachableBlock(), landingPad);
+	}
+
+	// mimic plain block for finalization
+	controlContext.type = ControlContext::Type::block;
+
 	end(NoImm{});
 }

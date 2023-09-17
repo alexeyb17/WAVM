@@ -317,8 +317,8 @@ namespace WAVM { namespace LLVMJIT {
 			Uptr catchCount = 0;
 		};
 
-		// Get innermost `try` control context.
-		UnwindPath getInnermostTry();
+		// Get innermost `try` control context after skipping `skipInner` top contexts.
+		UnwindPath getInnermostTry(Uptr skipInner = 0);
 
 		// Get target block for stack unwind.
 		llvm::BasicBlock* getInnermostUnwindToBlock();
